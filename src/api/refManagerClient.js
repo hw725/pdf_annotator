@@ -3,17 +3,32 @@
  * Base44 RefManager 앱과 통신하기 위한 API 클라이언트
  */
 
-// Prefer same-origin Edge Function proxy; fallback to direct URL when explicitly provided
-const API_BASE_URL =
-  import.meta.env.VITE_REFMANAGER_API_URL || "/api/refmanager";
+/**
+ * RefManager API Base URL 가져오기
+ * 우선순위: localStorage (Base44 전달) > 환경변수 > 프록시
+ */
+function getApiBaseUrl() {
+  // Base44에서 URL 파라미터로 전달받은 API URL (런타임)
+  const base44ApiUrl = localStorage.getItem("refmanager_api_url");
+  if (base44ApiUrl) {
+    return base44ApiUrl;
+  }
+
+  // 환경변수에 설정된 직접 URL (빌드타임)
+  const envApiUrl = import.meta.env.VITE_REFMANAGER_API_URL;
+  if (envApiUrl) {
+    return envApiUrl;
+  }
+
+  // 기본값: same-origin Edge Function 프록시 (권장)
+  return "/api/refmanager";
+}
 
 /**
  * Base44 인증 토큰 가져오기
- * 실제 구현에서는 Base44 세션에서 토큰을 가져와야 함
+ * Base44에서 URL 파라미터로 전달받아 localStorage에 저장된 토큰 사용
  */
 function getAuthToken() {
-  // TODO: Base44 세션에서 토큰 가져오기
-  // 예: localStorage, sessionStorage, 또는 Base44 SDK 사용
   return localStorage.getItem("base44_auth_token") || "";
 }
 
@@ -22,8 +37,9 @@ function getAuthToken() {
  */
 async function apiRequest(endpoint, options = {}) {
   const token = getAuthToken();
+  const apiBaseUrl = getApiBaseUrl();
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const response = await fetch(`${apiBaseUrl}${endpoint}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -60,7 +76,7 @@ async function apiRequest(endpoint, options = {}) {
  * @returns {Promise<{referenceId: string, title: string, pdfUrl: string, author_ids: string[], year: number}>}
  */
 export async function getPdfInfo(referenceId) {
-  return apiRequest("/functions/getPdfInfo", {
+  return apiRequest("/getPdfInfo", {
     method: "POST",
     body: JSON.stringify({ referenceId }),
   });
@@ -72,7 +88,7 @@ export async function getPdfInfo(referenceId) {
  * @returns {Promise<{success: boolean, annotations: Array}>}
  */
 export async function getAnnotations(referenceId) {
-  return apiRequest("/functions/getAnnotations", {
+  return apiRequest("/getAnnotations", {
     method: "POST",
     body: JSON.stringify({ referenceId }),
   });
@@ -84,7 +100,7 @@ export async function getAnnotations(referenceId) {
  * @returns {Promise<{success: boolean, annotation: Object}>}
  */
 export async function saveAnnotation(annotationData) {
-  return apiRequest("/functions/saveAnnotation", {
+  return apiRequest("/saveAnnotation", {
     method: "POST",
     body: JSON.stringify(annotationData),
   });
@@ -96,7 +112,7 @@ export async function saveAnnotation(annotationData) {
  * @returns {Promise<{success: boolean}>}
  */
 export async function deleteAnnotation(annotationId) {
-  return apiRequest("/functions/deleteAnnotation", {
+  return apiRequest("/deleteAnnotation", {
     method: "POST",
     body: JSON.stringify({ annotationId }),
   });

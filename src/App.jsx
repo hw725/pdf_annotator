@@ -22,10 +22,24 @@ function App() {
     const title = params.get("title");
     const pdfUrl = params.get("pdfUrl");
     const token = params.get("token");
+    const refManagerApiBaseUrl = params.get("refManagerApiBaseUrl");
 
-    // 인증 토큰 설정
+    // Base44 파라미터가 없으면 로컬 개발 모드로 판단
+    // 기존 Base44 설정을 클리어하여 로컬 환경 보호
+    if (!token && !refManagerApiBaseUrl) {
+      localStorage.removeItem("base44_auth_token");
+      localStorage.removeItem("refmanager_api_url");
+    }
+
+    // Base44에서 전달받은 인증 토큰을 localStorage에 저장
     if (token) {
+      localStorage.setItem("base44_auth_token", token);
       setAuthToken(token);
+    }
+
+    // Base44에서 전달받은 RefManager API URL을 localStorage에 저장
+    if (refManagerApiBaseUrl) {
+      localStorage.setItem("refmanager_api_url", refManagerApiBaseUrl);
     }
 
     // 참고문헌 ID와 pdfUrl이 모두 없으면 로컬 임시 모드로 시작
