@@ -350,9 +350,24 @@ export default function BetterPDFViewer({
         });
       }
       if (driveInfo.updatable && driveInfo.fileId) {
-        await drive.updateDriveFile(driveInfo.fileId, blob);
-        const url = drive.getDriveUrl(driveInfo.fileId);
-        alert("Drive 업데이트 완료: " + url);
+        try {
+          await drive.updateDriveFile(driveInfo.fileId, blob);
+          const url = drive.getDriveUrl(driveInfo.fileId);
+          alert("Drive 업데이트 완료: " + url);
+        } catch (err) {
+          console.warn("Drive 업데이트 실패, 새 파일로 저장 시도", err);
+          let baseName = "annotated";
+          if (localFile?.name) baseName = localFile.name.replace(/\.pdf$/i, "");
+          const filename = `${baseName} (annotated).pdf`;
+          const { url } = await pdfMgr.uploadPDFToDrive(
+            blob,
+            filename,
+            effectiveReferenceId || "temp"
+          );
+          alert(
+            "Drive 업로드 완료: " + url + " (업데이트 실패로 새 파일 생성)"
+          );
+        }
       } else {
         let baseName = "annotated";
         if (localFile?.name) baseName = localFile.name.replace(/\.pdf$/i, "");
@@ -1015,7 +1030,7 @@ export default function BetterPDFViewer({
             <button
               className="btn info"
               onClick={handlePreviewExport}
-              disabled={exportBusy || !hasSource}
+              disabled={exportBusy}
               title="주석 포함 PDF 미리보기"
             >
               미리보기
@@ -1023,7 +1038,7 @@ export default function BetterPDFViewer({
             <button
               className="btn success"
               onClick={handleDownloadExport}
-              disabled={exportBusy || !hasSource}
+              disabled={exportBusy}
               title="주석 포함 PDF 다운로드"
             >
               다운로드
@@ -1031,7 +1046,7 @@ export default function BetterPDFViewer({
             <button
               className="btn"
               onClick={handleLocalSave}
-              disabled={exportBusy || !hasSource}
+              disabled={exportBusy}
               title="파일로 저장(브라우저 저장 대화상자)"
             >
               파일 저장
@@ -1039,7 +1054,7 @@ export default function BetterPDFViewer({
             <button
               className="btn drive"
               onClick={handleDriveSave}
-              disabled={exportBusy || !hasSource}
+              disabled={exportBusy}
               title={
                 driveInfo.updatable
                   ? "Drive에 주석 포함 업데이트"
@@ -1049,6 +1064,15 @@ export default function BetterPDFViewer({
               {driveInfo.updatable ? "Drive 업데이트" : "Drive 저장"}
             </button>
           </div>
+          {!hasSource && (
+            <span
+              className="muted"
+              style={{ marginLeft: 8 }}
+            >
+              먼저 PDF를 열어주세요. 상단의 '로컬 열기' 또는 'URL' 버튼을
+              사용하세요.
+            </span>
+          )}
           {exportBusy && <span className="muted">내보내는 중…</span>}
         </div>
         {/* Supabase 연동 버튼 제거됨 */}
