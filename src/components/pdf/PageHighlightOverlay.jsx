@@ -70,6 +70,11 @@ const PageHighlightOverlay = ({
   useEffect(() => {
     (async () => {
       try {
+        // temp 모드(로컬 업로드)에서는 DB 로드 생략 (메모리 상태만 사용)
+        if (referenceId === "temp" && !pdfCacheId) {
+          return;
+        }
+
         const db = await initDB();
         const tx = db.transaction("highlights", "readonly");
         const store = tx.objectStore("highlights");
@@ -118,7 +123,23 @@ const PageHighlightOverlay = ({
           seen.add(sig);
           deduped.push(h);
         }
-        setHighlights(deduped);
+
+        // 기존 메모리 상태와 머지 (DB에 아직 없는 새 항목 유지)
+        setHighlights((prev) => {
+          const merged = [...deduped];
+          const dedupedIds = new Set(deduped.map((h) => h.id));
+          // DB에 없는 메모리 항목 추가 (방금 생성된 항목 등)
+          prev.forEach((h) => {
+            if (!dedupedIds.has(h.id)) {
+              const sig = makeSig(h);
+              if (!seen.has(sig)) {
+                seen.add(sig);
+                merged.push(h);
+              }
+            }
+          });
+          return merged;
+        });
       } catch (error) {
         console.error("하이라이트 로드 실패:", error);
       }
@@ -552,6 +573,13 @@ const PageHighlightOverlay = ({
     if (!canvas) return;
 
     const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // 캔버스 크기 확인 및 동기화
+    if (canvas.width < 2 || canvas.height < 2) {
+      ensureOverlaySize();
+    }
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     highlights.forEach((highlight) => {
@@ -589,7 +617,14 @@ const PageHighlightOverlay = ({
       ctx.lineWidth = 2;
       ctx.strokeRect(drawRect.x, drawRect.y, drawRect.width, drawRect.height);
     }
-  }, [highlights, drawRect, selectedColor, canvasSize]);
+  }, [
+    highlights,
+    drawRect,
+    selectedColor,
+    canvasSize,
+    pageNumber,
+    ensureOverlaySize,
+  ]);
 
   return (
     <div
