@@ -3,9 +3,9 @@
  * Base44 RefManager 앱과 통신하기 위한 API 클라이언트
  */
 
+// Prefer same-origin Edge Function proxy; fallback to direct URL when explicitly provided
 const API_BASE_URL =
-  import.meta.env.VITE_REFMANAGER_API_URL ||
-  "https://your-refmanager-app.base44.app/api";
+  import.meta.env.VITE_REFMANAGER_API_URL || "/api/refmanager";
 
 /**
  * Base44 인증 토큰 가져오기

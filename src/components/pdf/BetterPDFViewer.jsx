@@ -7,11 +7,7 @@ import PDFHighlight from "./PDFHighlight";
 import PageHighlightOverlay from "./PageHighlightOverlay";
 import PageHighlightsSidebar from "./PageHighlightsSidebar";
 import { localDB } from "@/db/localDB";
-import {
-  isSupabaseConfigured,
-  supabase,
-  listAnnotationsByReference,
-} from "@/api/supabaseClient";
+// Supabase 통합은 비활성화되었습니다.
 import {
   exportFromIndexedDB,
   exportPDFWithHighlights,
@@ -188,7 +184,7 @@ export default function BetterPDFViewer({
   const handlePreviewExport = useCallback(async () => {
     if (!hasSource) {
       alert(
-        "먼저 PDF를 열어주세요. 상단의 '업로드' 또는 'URL' 버튼을 사용하세요."
+        "먼저 PDF를 열어주세요. 상단의 '로컬 열기' 또는 'URL' 버튼을 사용하세요."
       );
       return;
     }
@@ -230,7 +226,7 @@ export default function BetterPDFViewer({
   const handleDownloadExport = useCallback(async () => {
     if (!hasSource) {
       alert(
-        "먼저 PDF를 열어주세요. 상단의 '업로드' 또는 'URL' 버튼을 사용하세요."
+        "먼저 PDF를 열어주세요. 상단의 '로컬 열기' 또는 'URL' 버튼을 사용하세요."
       );
       return;
     }
@@ -260,112 +256,12 @@ export default function BetterPDFViewer({
   }, [effectiveReferenceId, getSourceArrayBuffer, allHighlights, hasSource]);
 
   // Supabase 저장: 해당 reference 기준으로 기존 행 삭제 후 현재 하이라이트 일괄 저장
-  const handleSupabaseSave = useCallback(async () => {
-    try {
-      if (!isSupabaseConfigured) {
-        alert("Supabase 설정이 필요합니다. .env.local을 확인하세요.");
-        return;
-      }
-      if (!effectiveReferenceId) {
-        alert("referenceId가 필요합니다.");
-        return;
-      }
-      if (!Array.isArray(allHighlights) || allHighlights.length === 0) {
-        alert("저장할 하이라이트가 없습니다.");
-        return;
-      }
-      const del = await supabase
-        .from("annotations")
-        .delete()
-        .eq("reference_id", effectiveReferenceId);
-      if (del.error) throw del.error;
-
-      const rows = allHighlights.map((h) => {
-        const isText = h.type === "text" && Array.isArray(h.rects);
-        return {
-          reference_id: effectiveReferenceId,
-          page_number: h.page || h.page_number || 1,
-          type: h.type || (isText ? "text" : "area"),
-          color: h.color || "#FFFF00",
-          content: h.text || "",
-          position: isText ? { rects: h.rects } : { area: h.area },
-          base_size: h.base_size || null,
-        };
-      });
-
-      const ins = await supabase.from("annotations").insert(rows).select("id");
-      if (ins.error) throw ins.error;
-      alert(`Supabase 저장 완료: ${ins.data?.length || rows.length}건`);
-    } catch (e) {
-      console.error("Supabase 저장 실패", e);
-      alert(`Supabase 저장 실패: ${e?.message || e}`);
-    }
-  }, [effectiveReferenceId, allHighlights]);
-
-  // Supabase 불러오기: 해당 reference의 행을 로컬 DB(highlights)에 반영 후 새로고침
-  const handleSupabaseLoad = useCallback(async () => {
-    try {
-      if (!isSupabaseConfigured) {
-        alert("Supabase 설정이 필요합니다. .env.local을 확인하세요.");
-        return;
-      }
-      if (!effectiveReferenceId) {
-        alert("referenceId가 필요합니다.");
-        return;
-      }
-      const rows = await listAnnotationsByReference(effectiveReferenceId);
-      if (!rows || rows.length === 0) {
-        alert("불러올 주석이 없습니다.");
-        return;
-      }
-      const db = await (await import("@/db/localDB")).initDB();
-      const existing = await db.getAllFromIndex(
-        "highlights",
-        "reference_id",
-        effectiveReferenceId
-      );
-      if (existing && existing.length > 0) {
-        const txDel = db.transaction("highlights", "readwrite");
-        for (const it of existing) {
-          await txDel.store.delete(it.id);
-        }
-        await txDel.done;
-      }
-
-      const tx = db.transaction("highlights", "readwrite");
-      for (const a of rows) {
-        const pos = a.position || {};
-        const isText = Array.isArray(pos.rects) && pos.rects.length > 0;
-        const mapped = {
-          id: `sb-${a.id}`,
-          remote_id: String(a.id),
-          reference_id: effectiveReferenceId,
-          page: a.page_number || 1,
-          type: a.type || (isText ? "text" : "area"),
-          rects: isText ? pos.rects : undefined,
-          area: !isText ? pos.area : undefined,
-          color: a.color || "#FFFF00",
-          text: a.content || "",
-          base_size: a.base_size || null,
-          created_at: Date.now(),
-          synced: true,
-        };
-        await tx.store.put(mapped);
-      }
-      await tx.done;
-      setDbRefreshKey((k) => k + 1);
-      alert(`Supabase에서 ${rows.length}건 불러옴`);
-    } catch (e) {
-      console.error("Supabase 불러오기 실패", e);
-      alert(`Supabase 불러오기 실패: ${e?.message || e}`);
-    }
-  }, [effectiveReferenceId]);
 
   // 로컬 저장 (showSaveFilePicker 지원 시 사용)
   const handleLocalSave = useCallback(async () => {
     if (!hasSource) {
       alert(
-        "먼저 PDF를 열어주세요. 상단의 '업로드' 또는 'URL' 버튼을 사용하세요."
+        "먼저 PDF를 열어주세요. 상단의 '로컬 열기' 또는 'URL' 버튼을 사용하세요."
       );
       return;
     }
@@ -1079,9 +975,9 @@ export default function BetterPDFViewer({
           <button
             className="btn primary"
             onClick={() => fileInputRef.current && fileInputRef.current.click()}
-            title="로컬 PDF 업로드"
+            title="내 컴퓨터에서 PDF 선택"
           >
-            업로드
+            로컬 열기
           </button>
           <button
             className="btn"
@@ -1101,7 +997,7 @@ export default function BetterPDFViewer({
                 alert("유효한 URL이 아닙니다.");
               }
             }}
-            title="PDF URL로 열기"
+            title="URL에서 PDF 열기"
           >
             URL
           </button>
@@ -1110,9 +1006,9 @@ export default function BetterPDFViewer({
             <button
               className="btn warn"
               onClick={processSyncQueue}
-              title="대기 중인 동기화 작업을 즉시 재시도"
+              title="대기 중인 작업 재시도 (오프라인/서버 오류 시)"
             >
-              동기화 대기 <span className="badge">{pendingCount}</span>
+              대기 작업 <span className="badge">{pendingCount}</span>
             </button>
           )}
           <div className="btn-split">
@@ -1122,7 +1018,7 @@ export default function BetterPDFViewer({
               disabled={exportBusy || !hasSource}
               title="주석 포함 PDF 미리보기"
             >
-              미리
+              미리보기
             </button>
             <button
               className="btn success"
@@ -1130,15 +1026,15 @@ export default function BetterPDFViewer({
               disabled={exportBusy || !hasSource}
               title="주석 포함 PDF 다운로드"
             >
-              다운
+              다운로드
             </button>
             <button
               className="btn"
               onClick={handleLocalSave}
               disabled={exportBusy || !hasSource}
-              title="로컬 파일로 저장(브라우저 지원 시 대화상자)"
+              title="파일로 저장(브라우저 저장 대화상자)"
             >
-              로컬
+              파일 저장
             </button>
             <button
               className="btn drive"
@@ -1150,31 +1046,12 @@ export default function BetterPDFViewer({
                   : "Drive에 주석 포함 저장"
               }
             >
-              Drive
+              {driveInfo.updatable ? "Drive 업데이트" : "Drive 저장"}
             </button>
           </div>
           {exportBusy && <span className="muted">내보내는 중…</span>}
         </div>
-        {isSupabaseConfigured && (
-          <div className="toolbar-group">
-            <div className="btn-split">
-              <button
-                className="btn"
-                onClick={handleSupabaseLoad}
-                title="Supabase에서 현재 참고문헌의 주석을 불러옵니다"
-              >
-                Supa 불러오기
-              </button>
-              <button
-                className="btn"
-                onClick={handleSupabaseSave}
-                title="현재 하이라이트를 Supabase에 저장합니다(덮어쓰기)"
-              >
-                Supa 저장
-              </button>
-            </div>
-          </div>
-        )}
+        {/* Supabase 연동 버튼 제거됨 */}
       </div>
 
       {/* 좌측 사이드바 + 문서 뷰 */}

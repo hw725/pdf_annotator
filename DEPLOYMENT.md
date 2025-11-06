@@ -26,11 +26,15 @@ vercel
 
 Vercel 대시보드(Project → Settings → Environment Variables) 또는 CLI로 아래 항목을 추가하세요.
 
-- VITE_REFMANAGER_API_URL = https://your-refmanager.base44.app/api (선택)
+- VITE_REFMANAGER_API_URL = https://your-refmanager.base44.app/api (선택, 프록시 미사용 시)
 - VITE_GOOGLE_CLIENT_ID = your_google_client_id.apps.googleusercontent.com (선택: Drive 연동 시)
 - VITE_GOOGLE_API_KEY = your_google_api_key (선택: Drive 연동 시)
 - VITE_SUPABASE_URL = https://YOUR-PROJECT-REF.supabase.co (선택: Supabase 사용 시)
 - VITE_SUPABASE_ANON_KEY = supabase_anon_key (선택: Supabase 사용 시)
+
+추가로, Edge Function 프록시를 사용할 경우(권장):
+
+- REFMANAGER_API_URL = https://your-refmanager.base44.app/api (서버 전용; VITE_ 없이 저장)
 
 ### 4. 프로덕션 배포
 ```cmd
@@ -176,6 +180,8 @@ export default async function yourFunction(req, res) {
 - OAuth 클라이언트의 Authorized JavaScript origins에 배포 도메인 추가
   - 예: https://refmanager-pdf-annotator.vercel.app, https://refmanager-pdf-annotator.netlify.app
 - (Redirect 방식 사용 시) Authorized redirect URIs도 필요에 맞게 추가
+
+참고: Edge Function 활성화는 프런트엔드 도메인(origin)을 바꾸지 않으므로 Google OAuth(GIS 팝업)의 Authorized JavaScript origins에 영향이 없습니다. 단, 프리뷰 도메인에서 테스트하려면 해당 도메인도 별도로 등록하거나, 프로덕션 도메인에서 테스트하세요.
 
 ---
 

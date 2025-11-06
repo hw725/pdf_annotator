@@ -32,6 +32,27 @@ const PageHighlightOverlay = ({
   const containerRef = useRef(null);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 
+  // 오버레이 캔버스를 PDF 페이지 크기에 맞춰 즉시 동기화
+  const ensureOverlaySize = useCallback(() => {
+    const pageEl = getPdfPageElement();
+    const overlayCanvas = canvasRef.current;
+    if (!pageEl || !overlayCanvas) return false;
+    const rect = pageEl.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    // CSS 사이즈 동기화
+    overlayCanvas.style.width = `${rect.width}px`;
+    overlayCanvas.style.height = `${rect.height}px`;
+    // 실제 캔버스 해상도(DPR 반영)
+    const w = Math.max(1, Math.floor(rect.width * dpr));
+    const h = Math.max(1, Math.floor(rect.height * dpr));
+    if (overlayCanvas.width !== w || overlayCanvas.height !== h) {
+      overlayCanvas.width = w;
+      overlayCanvas.height = h;
+      setCanvasSize({ width: w, height: h });
+    }
+    return w > 1 && h > 1;
+  }, []);
+
   // 현재 페이지의 PDF 렌더 요소 찾기 (canvas 또는 svg)
   const getPdfPageElement = () => {
     const container = containerRef.current;
@@ -107,20 +128,7 @@ const PageHighlightOverlay = ({
   // Canvas 크기 조정 (PDF 페이지 요소 기준으로 동기화)
   useEffect(() => {
     const updateCanvasSize = () => {
-      const pageEl = getPdfPageElement();
-      const overlayCanvas = canvasRef.current;
-      if (pageEl && overlayCanvas) {
-        const rect = pageEl.getBoundingClientRect();
-        const dpr = window.devicePixelRatio || 1;
-        overlayCanvas.style.width = `${rect.width}px`;
-        overlayCanvas.style.height = `${rect.height}px`;
-        overlayCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
-        overlayCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
-        setCanvasSize({
-          width: overlayCanvas.width,
-          height: overlayCanvas.height,
-        });
-      }
+      ensureOverlaySize();
     };
 
     // 초기 및 렌더링 안정화 후 재측정
@@ -366,6 +374,10 @@ const PageHighlightOverlay = ({
     // CSS px -> 캔버스 좌표 변환
     const overlay = canvasRef.current;
     if (!overlay) return;
+    // 오버레이 크기가 반영되지 않았으면 즉시 동기화
+    if ((overlay.width || 0) < 2 || (overlay.height || 0) < 2) {
+      ensureOverlaySize();
+    }
     const scaleX = overlay.width / (pageRect.width || 1);
     const scaleY = overlay.height / (pageRect.height || 1);
     const rectsCanvas = rectsOnPageCss.map((r) => ({
@@ -387,7 +399,7 @@ const PageHighlightOverlay = ({
     setTimeout(() => {
       selection.removeAllRanges();
     }, 80);
-  }, [highlightMode, selectedColor, saveHighlight]);
+  }, [highlightMode, selectedColor, saveHighlight, ensureOverlaySize]);
 
   // 텍스트 모드: 전역 mouseup에서 처리하여 텍스트 선택 방해 없도록
   useEffect(() => {
@@ -403,6 +415,11 @@ const PageHighlightOverlay = ({
 
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    // 오버레이 크기가 반영되지 않았으면 즉시 동기화
+    if ((canvas.width || 0) < 2 || (canvas.height || 0) < 2) {
+      ensureOverlaySize();
+    }
 
     const rect = canvas.getBoundingClientRect();
     const cssX = e.clientX - rect.left;
