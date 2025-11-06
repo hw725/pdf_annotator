@@ -315,6 +315,7 @@ export default function BetterPDFViewer({
 
   // Drive 저장/업데이트
   const handleDriveSave = useCallback(async () => {
+    console.log("[Drive] 버튼 클릭");
     if (!hasSource) {
       alert(
         "먼저 PDF를 열어주세요. 상단의 '업로드' 또는 'URL' 버튼을 사용하세요."
@@ -322,6 +323,8 @@ export default function BetterPDFViewer({
       return;
     }
     try {
+      setExportBusy(true);
+      console.log("[Drive] 저장 시작");
       const [drive, pdfMgr] = await Promise.all([
         import("@/api/driveClient"),
         import("@/utils/pdfManager"),
@@ -382,6 +385,9 @@ export default function BetterPDFViewer({
     } catch (e) {
       console.error("Drive 저장 실패", e);
       alert(`Drive 저장 실패: ${e?.message || e}`);
+    } finally {
+      setExportBusy(false);
+      console.log("[Drive] 저장 종료");
     }
   }, [
     effectiveReferenceId,
