@@ -137,11 +137,11 @@ function App() {
       </header>
 
       <main className="app-main">
-        {/** 외부 PDF는 /proxy를 통해 요청하여 CORS/Range 문제를 회피 */}
+        {/** 외부 PDF는 /api/proxy를 통해 요청하여 CORS/Range 문제를 회피 */}
         {(() => {
           const url = (pdfInfo && pdfInfo.pdfUrl) || "";
           const proxied = /^https?:\/\//i.test(url)
-            ? `/proxy?url=${encodeURIComponent(url)}`
+            ? `/api/proxy?url=${encodeURIComponent(url)}`
             : url;
           return (
             <PDFViewer

@@ -7,7 +7,7 @@ function localProxyPlugin() {
   return {
     name: "local-proxy",
     configureServer(server) {
-      server.middlewares.use("/proxy", async (req, res) => {
+      server.middlewares.use("/api/proxy", async (req, res) => {
         try {
           const reqUrl = new URL(req.url, "http://localhost");
           const target = reqUrl.searchParams.get("url");

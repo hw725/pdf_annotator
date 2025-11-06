@@ -3,7 +3,7 @@
   command = "npm run build"
 
 [[redirects]]
-  from = "/proxy"
+  from = "/api/proxy"
   to = "/.netlify/functions/proxy"
   status = 200
 
