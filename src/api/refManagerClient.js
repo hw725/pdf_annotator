@@ -52,6 +52,22 @@ async function apiRequest(endpoint, options = {}) {
     .slice(2, 8)}`;
 
   const url = `${apiBaseUrl}${endpoint}`;
+
+  // 디버깅: 요청 정보 전체 로깅
+  const debugMode = localStorage.getItem("debug_refmanager") === "true";
+  if (debugMode) {
+    console.log(`[RefManager API Request] ${requestId}`, {
+      url,
+      method: options.method || "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: token ? `Bearer ${token.slice(0, 20)}...` : "(없음)",
+        "x-client-request-id": requestId,
+      },
+      body: options.body ? JSON.parse(options.body) : undefined,
+    });
+  }
+
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -62,48 +78,64 @@ async function apiRequest(endpoint, options = {}) {
     },
   });
 
+  // 응답 바디를 먼저 텍스트로 읽기 (재사용 가능하게)
+  const responseText = await response.text();
+
+  if (debugMode) {
+    console.log(`[RefManager API Response] ${requestId}`, {
+      status: response.status,
+      ok: response.ok,
+      statusText: response.statusText,
+      headers: Object.fromEntries(response.headers.entries()),
+      bodyPreview: responseText.slice(0, 500),
+    });
+  }
+
   if (!response.ok) {
-    // 에러 바디를 최대한 상세히 추출 (JSON -> text 순)
+    // 에러 바디를 최대한 상세히 추출
     let message = `HTTP ${response.status}`;
     let details = null;
     try {
-      const data = await response.json();
+      const data = JSON.parse(responseText);
       if (data && (data.message || data.error)) {
         message = data.message || data.error;
         details = data;
+      } else {
+        details = data;
       }
     } catch {
-      try {
-        const text = await response.text();
-        if (text) {
-          message = text;
-          details = text;
-        }
-      } catch {
-        // ignore
+      if (responseText) {
+        message = responseText;
+        details = responseText;
       }
     }
+
     // 추가 진단 로그: 어디로 어떤 페이로드를 보냈는지 파악 도움
-    try {
-      const bodyPreview = options.body
-        ? JSON.stringify(JSON.parse(options.body))
-        : undefined;
-      console.warn(
-        "RefManager API 오류",
-        {
-          url,
-          endpoint,
-          status: response.status,
-          requestId,
-          body: bodyPreview,
-        },
-        details || ""
-      );
-    } catch {}
+    const bodyPreview = options.body
+      ? JSON.stringify(JSON.parse(options.body))
+      : undefined;
+    console.error(
+      "RefManager API 오류",
+      {
+        url,
+        endpoint,
+        status: response.status,
+        requestId,
+        body: bodyPreview,
+      },
+      details || ""
+    );
+
     throw new Error(message || "API 요청 실패");
   }
 
-  return response.json();
+  // 성공 응답 파싱
+  try {
+    return JSON.parse(responseText);
+  } catch {
+    console.warn("응답을 JSON으로 파싱할 수 없음, 원본 반환:", responseText);
+    return { success: true, data: responseText };
+  }
 }
 
 /**

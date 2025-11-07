@@ -1167,6 +1167,8 @@ export default function BetterPDFViewer({
           currentPage={currentPage}
           onJumpToPage={goToPage}
           onJumpToHighlight={scrollToHighlight}
+          referenceId={effectiveReferenceId}
+          refreshKey={dbRefreshKey}
         />
         <div
           ref={containerRef}

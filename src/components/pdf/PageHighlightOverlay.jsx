@@ -313,13 +313,22 @@ const PageHighlightOverlay = ({
           .toString(36)
           .substr(2, 9)}`;
 
+        // base_size는 PDF 페이지의 논리 크기(DPR 무시한 CSS px 기준)로 저장
+        const pageEl = getPdfPageElement();
+        const logicalSize = pageEl
+          ? {
+              width: pageEl.getBoundingClientRect().width,
+              height: pageEl.getBoundingClientRect().height,
+            }
+          : { width: canvasSize.width, height: canvasSize.height };
+
         const highlight = {
           id,
           reference_id: referenceId,
           pdf_cache_id: pdfCacheId,
           page: pageNumber,
           ...highlightData,
-          base_size: { width: canvasSize.width, height: canvasSize.height },
+          base_size: logicalSize,
           created_at: Date.now(),
           synced: false,
         };
@@ -582,25 +591,45 @@ const PageHighlightOverlay = ({
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // 현재 페이지의 논리 크기(CSS px)
+    const pageEl = getPdfPageElement();
+    const currentLogicalW =
+      pageEl?.getBoundingClientRect().width || canvas.width;
+    const currentLogicalH =
+      pageEl?.getBoundingClientRect().height || canvas.height;
+
     highlights.forEach((highlight) => {
       const colorObj = COLORS.find((c) => c.value === highlight.color);
       const opacity = colorObj?.opacity || 0.3;
+
+      // 좌표 스케일 보정: base_size 대비 현재 크기 비율
+      const baseW = highlight.base_size?.width || currentLogicalW;
+      const baseH = highlight.base_size?.height || currentLogicalH;
+      const scaleX =
+        (currentLogicalW / baseW) * (canvas.width / currentLogicalW);
+      const scaleY =
+        (currentLogicalH / baseH) * (canvas.height / currentLogicalH);
 
       if (highlight.type === "area" && highlight.area) {
         ctx.fillStyle = highlight.color;
         ctx.globalAlpha = opacity;
         ctx.fillRect(
-          highlight.area.x,
-          highlight.area.y,
-          highlight.area.width,
-          highlight.area.height
+          highlight.area.x * scaleX,
+          highlight.area.y * scaleY,
+          highlight.area.width * scaleX,
+          highlight.area.height * scaleY
         );
         ctx.globalAlpha = 1.0;
       } else if (highlight.type === "text" && highlight.rects) {
         ctx.fillStyle = highlight.color;
         ctx.globalAlpha = opacity;
         highlight.rects.forEach((rect) => {
-          ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+          ctx.fillRect(
+            rect.x * scaleX,
+            rect.y * scaleY,
+            rect.width * scaleX,
+            rect.height * scaleY
+          );
         });
         ctx.globalAlpha = 1.0;
       }

@@ -36,6 +36,16 @@ export default async function handler(request) {
   }
 
   const target = new URL(pathAfter, upstreamBase).toString();
+  const clientRequestId =
+    request.headers.get("x-client-request-id") || "unknown";
+
+  // 디버깅: 프록시 요청 로깅
+  console.log(`[Proxy Request] ${clientRequestId}`, {
+    method: request.method,
+    pathAfter,
+    target,
+    upstreamBase,
+  });
 
   // Copy headers selectively
   const headers = new Headers();
@@ -48,8 +58,10 @@ export default async function handler(request) {
     try {
       const json = await request.json();
       body = JSON.stringify(json);
+      console.log(`[Proxy Request Body] ${clientRequestId}`, json);
     } catch {
       body = await request.text();
+      console.log(`[Proxy Request Body (text)] ${clientRequestId}`, body);
     }
   }
 
@@ -58,6 +70,14 @@ export default async function handler(request) {
       method: request.method,
       headers,
       body,
+    });
+
+    // 업스트림 응답 로깅
+    const responseText = await resp.text();
+    console.log(`[Proxy Response] ${clientRequestId}`, {
+      status: resp.status,
+      ok: resp.ok,
+      bodyPreview: responseText.slice(0, 500),
     });
 
     const passHeaders = {
@@ -69,27 +89,31 @@ export default async function handler(request) {
     if (!resp.ok) {
       let message = `HTTP ${resp.status}`;
       try {
-        const err = await resp.json();
+        const err = JSON.parse(responseText);
         message = err?.message || err?.error || message;
-        return jsonResponse(resp.status, { error: message }, passHeaders);
+        console.error(`[Proxy Error] ${clientRequestId}`, err);
+        return jsonResponse(
+          resp.status,
+          { error: message, details: err },
+          passHeaders
+        );
       } catch {
-        const txt = await resp.text();
-        if (txt) message = txt;
+        if (responseText) message = responseText;
+        console.error(`[Proxy Error (text)] ${clientRequestId}`, responseText);
         return jsonResponse(resp.status, { error: message }, passHeaders);
       }
     }
 
-    // Try to stream through JSON
-    const contentType = resp.headers.get("content-type") || "";
-    if (contentType.includes("application/json")) {
-      const data = await resp.json();
+    // Try to parse as JSON
+    try {
+      const data = JSON.parse(responseText);
       return jsonResponse(200, data, passHeaders);
+    } catch {
+      // Fallback: return text
+      return new Response(responseText, { status: 200, headers: passHeaders });
     }
-
-    // Fallback: pass text
-    const text = await resp.text();
-    return new Response(text, { status: 200, headers: passHeaders });
   } catch (e) {
+    console.error(`[Proxy Fetch Error] ${clientRequestId}`, e);
     return jsonResponse(502, { error: `Upstream error: ${e?.message || e}` });
   }
 }

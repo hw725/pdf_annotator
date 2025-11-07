@@ -1,7 +1,7 @@
 import { openDB } from "idb";
 
 const DB_NAME = "refmanager-offline";
-const DB_VERSION = 2; // PDF 기능 추가로 버전 증가
+const DB_VERSION = 3; // 북마크 기능 추가로 버전 증가
 
 /**
  * IndexedDB 초기화
@@ -98,6 +98,16 @@ export const initDB = async () => {
         highlightsStore.createIndex("page", "page");
         highlightsStore.createIndex("created_at", "created_at");
         highlightsStore.createIndex("synced", "synced");
+      }
+
+      // PDF 북마크 저장소
+      if (!db.objectStoreNames.contains("bookmarks")) {
+        const bookmarksStore = db.createObjectStore("bookmarks", {
+          keyPath: "id",
+        });
+        bookmarksStore.createIndex("reference_id", "reference_id");
+        bookmarksStore.createIndex("page", "page");
+        bookmarksStore.createIndex("created_at", "created_at");
       }
 
       // 동기화 큐 (오프라인 시 변경사항 대기열)

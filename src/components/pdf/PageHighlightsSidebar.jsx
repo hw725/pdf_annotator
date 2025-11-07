@@ -1,12 +1,16 @@
 /* eslint-disable react/prop-types */
 import React, { useEffect, useMemo, useState } from "react";
+import PageBookmarksSidebar from "./PageBookmarksSidebar";
 
 export default function PageHighlightsSidebar({
   highlights = [],
   currentPage = 1,
   onJumpToPage,
   onJumpToHighlight,
+  referenceId,
+  refreshKey = 0,
 }) {
+  const [activeTab, setActiveTab] = useState("highlights"); // "highlights" or "bookmarks"
   // 펼침/접힘 없이 항상 표시
   const MAX_ITEMS_PER_PAGE = 30;
   const [groupByPage, setGroupByPage] = useState(false); // 자동 목차(페이지 헤더) 대신 기본은 단일 목록
@@ -120,151 +124,217 @@ export default function PageHighlightsSidebar({
         width: 240,
         borderRight: "1px solid #e5e7eb",
         background: "#fafafa",
-        overflow: "auto",
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
       }}
     >
-      <div style={{ padding: 12, borderBottom: "1px solid #e5e7eb" }}>
-        <div style={{ fontWeight: 600, color: "#374151" }}>하이라이트</div>
-        <div
+      {/* 탭 헤더 */}
+      <div
+        style={{
+          display: "flex",
+          borderBottom: "1px solid #e5e7eb",
+          background: "#fff",
+        }}
+      >
+        <button
+          onClick={() => setActiveTab("highlights")}
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            fontSize: 12,
-            color: "#6b7280",
+            flex: 1,
+            padding: "10px 12px",
+            background: activeTab === "highlights" ? "#f3f4f6" : "transparent",
+            border: "none",
+            borderBottom:
+              activeTab === "highlights"
+                ? "2px solid #3b82f6"
+                : "2px solid transparent",
+            cursor: "pointer",
+            fontSize: 13,
+            fontWeight: activeTab === "highlights" ? 600 : 400,
+            color: activeTab === "highlights" ? "#111827" : "#6b7280",
+            transition: "all 0.15s",
           }}
         >
-          <span>총 {flatList?.length || 0}개</span>
-          <label
-            style={{
-              marginLeft: "auto",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-            }}
-            title="페이지별 그룹 표시"
-          >
-            <input
-              type="checkbox"
-              checked={groupByPage}
-              onChange={(e) => setGroupByPage(e.target.checked)}
-            />
-            <span style={{ color: "#374151" }}>페이지별</span>
-          </label>
-        </div>
+          하이라이트
+        </button>
+        <button
+          onClick={() => setActiveTab("bookmarks")}
+          style={{
+            flex: 1,
+            padding: "10px 12px",
+            background: activeTab === "bookmarks" ? "#f3f4f6" : "transparent",
+            border: "none",
+            borderBottom:
+              activeTab === "bookmarks"
+                ? "2px solid #3b82f6"
+                : "2px solid transparent",
+            cursor: "pointer",
+            fontSize: 13,
+            fontWeight: activeTab === "bookmarks" ? 600 : 400,
+            color: activeTab === "bookmarks" ? "#111827" : "#6b7280",
+            transition: "all 0.15s",
+          }}
+        >
+          북마크
+        </button>
       </div>
 
-      <div>
-        {groupByPage ? (
-          byPage.map(({ page, list }) => {
-            const isActive = page === currentPage;
-            return (
-              <div key={page}>
-                <button
-                  onClick={() => onJumpToPage && onJumpToPage(page)}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    width: "100%",
-                    padding: "8px 12px",
-                    background: isActive ? "#eef2ff" : "transparent",
-                    border: "none",
-                    borderBottom: "1px solid #f3f4f6",
-                    cursor: "pointer",
-                    color: "#374151",
-                  }}
-                  title="페이지로 이동"
-                >
-                  <span>페이지 {page}</span>
-                  <span style={{ color: "#6b7280", fontSize: 12 }}>
-                    {list.length}개
-                  </span>
-                </button>
-                <div
-                  style={{ padding: "4px 8px 8px 16px", background: "#fff" }}
-                >
-                  {list.slice(0, MAX_ITEMS_PER_PAGE).map((h) => (
+      {/* 탭 컨텐츠 */}
+      {activeTab === "highlights" ? (
+        <div style={{ flex: 1, overflow: "auto" }}>
+          <div style={{ padding: 12, borderBottom: "1px solid #e5e7eb" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 12,
+                color: "#6b7280",
+              }}
+            >
+              <span>총 {flatList?.length || 0}개</span>
+              <label
+                style={{
+                  marginLeft: "auto",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+                title="페이지별 그룹 표시"
+              >
+                <input
+                  type="checkbox"
+                  checked={groupByPage}
+                  onChange={(e) => setGroupByPage(e.target.checked)}
+                />
+                <span style={{ color: "#374151" }}>페이지별</span>
+              </label>
+            </div>
+          </div>
+
+          <div>
+            {groupByPage ? (
+              byPage.map(({ page, list }) => {
+                const isActive = page === currentPage;
+                return (
+                  <div key={page}>
                     <button
-                      key={`${page}-${h.type}-${h.color}-${(h.text || "").slice(
-                        0,
-                        50
-                      )}`}
-                      onClick={() => onJumpToHighlight && onJumpToHighlight(h)}
+                      onClick={() => onJumpToPage && onJumpToPage(page)}
                       style={{
-                        display: "block",
+                        display: "flex",
+                        justifyContent: "space-between",
                         width: "100%",
-                        textAlign: "left",
-                        background: "transparent",
+                        padding: "8px 12px",
+                        background: isActive ? "#eef2ff" : "transparent",
                         border: "none",
-                        fontSize: 12,
-                        color: "#4b5563",
-                        padding: "6px 0",
-                        borderBottom: "1px dashed #f3f4f6",
+                        borderBottom: "1px solid #f3f4f6",
                         cursor: "pointer",
+                        color: "#374151",
                       }}
-                      title={h.text || "영역 하이라이트"}
+                      title="페이지로 이동"
                     >
+                      <span>페이지 {page}</span>
+                      <span style={{ color: "#6b7280", fontSize: 12 }}>
+                        {list.length}개
+                      </span>
+                    </button>
+                    <div
+                      style={{
+                        padding: "4px 8px 8px 16px",
+                        background: "#fff",
+                      }}
+                    >
+                      {list.slice(0, MAX_ITEMS_PER_PAGE).map((h) => (
+                        <button
+                          key={`${page}-${h.type}-${h.color}-${(
+                            h.text || ""
+                          ).slice(0, 50)}`}
+                          onClick={() =>
+                            onJumpToHighlight && onJumpToHighlight(h)
+                          }
+                          style={{
+                            display: "block",
+                            width: "100%",
+                            textAlign: "left",
+                            background: "transparent",
+                            border: "none",
+                            fontSize: 12,
+                            color: "#4b5563",
+                            padding: "6px 0",
+                            borderBottom: "1px dashed #f3f4f6",
+                            cursor: "pointer",
+                          }}
+                          title={h.text || "영역 하이라이트"}
+                        >
+                          {h.type === "text"
+                            ? (h.text || "텍스트 하이라이트").slice(0, 120)
+                            : "영역 하이라이트"}
+                        </button>
+                      ))}
+                      {list.length > MAX_ITEMS_PER_PAGE && (
+                        <div style={{ fontSize: 12, color: "#9ca3af" }}>…</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div style={{ padding: "8px 8px 12px 8px", background: "#fff" }}>
+                {flatList.map((h, idx) => (
+                  <button
+                    key={`flat-${idx}-${h.type}-${h.color}-${(
+                      h.text || ""
+                    ).slice(0, 50)}`}
+                    onClick={() => onJumpToHighlight && onJumpToHighlight(h)}
+                    style={{
+                      display: "flex",
+                      width: "100%",
+                      alignItems: "center",
+                      gap: 8,
+                      textAlign: "left",
+                      background: "transparent",
+                      border: "none",
+                      fontSize: 12,
+                      color: "#4b5563",
+                      padding: "6px 4px",
+                      borderBottom: "1px dashed #f3f4f6",
+                      cursor: "pointer",
+                    }}
+                    title={h.text || "영역 하이라이트"}
+                  >
+                    <span style={{ minWidth: 36, color: "#6b7280" }}>
+                      p{h.page}
+                    </span>
+                    <span style={{ flex: 1 }}>
                       {h.type === "text"
                         ? (h.text || "텍스트 하이라이트").slice(0, 120)
                         : "영역 하이라이트"}
-                    </button>
-                  ))}
-                  {list.length > MAX_ITEMS_PER_PAGE && (
-                    <div style={{ fontSize: 12, color: "#9ca3af" }}>…</div>
-                  )}
-                </div>
+                    </span>
+                  </button>
+                ))}
+                {flatList.length === 0 && (
+                  <div style={{ padding: 12, color: "#9ca3af", fontSize: 12 }}>
+                    아직 하이라이트가 없습니다.
+                  </div>
+                )}
               </div>
-            );
-          })
-        ) : (
-          <div style={{ padding: "8px 8px 12px 8px", background: "#fff" }}>
-            {flatList.map((h, idx) => (
-              <button
-                key={`flat-${idx}-${h.type}-${h.color}-${(h.text || "").slice(
-                  0,
-                  50
-                )}`}
-                onClick={() => onJumpToHighlight && onJumpToHighlight(h)}
-                style={{
-                  display: "flex",
-                  width: "100%",
-                  alignItems: "center",
-                  gap: 8,
-                  textAlign: "left",
-                  background: "transparent",
-                  border: "none",
-                  fontSize: 12,
-                  color: "#4b5563",
-                  padding: "6px 4px",
-                  borderBottom: "1px dashed #f3f4f6",
-                  cursor: "pointer",
-                }}
-                title={h.text || "영역 하이라이트"}
-              >
-                <span style={{ minWidth: 36, color: "#6b7280" }}>
-                  p{h.page}
-                </span>
-                <span style={{ flex: 1 }}>
-                  {h.type === "text"
-                    ? (h.text || "텍스트 하이라이트").slice(0, 120)
-                    : "영역 하이라이트"}
-                </span>
-              </button>
-            ))}
-            {flatList.length === 0 && (
+            )}
+
+            {groupByPage && byPage.length === 0 && (
               <div style={{ padding: 12, color: "#9ca3af", fontSize: 12 }}>
                 아직 하이라이트가 없습니다.
               </div>
             )}
           </div>
-        )}
-
-        {groupByPage && byPage.length === 0 && (
-          <div style={{ padding: 12, color: "#9ca3af", fontSize: 12 }}>
-            아직 하이라이트가 없습니다.
-          </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <PageBookmarksSidebar
+          referenceId={referenceId}
+          currentPage={currentPage}
+          onJumpToPage={onJumpToPage}
+          refreshKey={refreshKey}
+        />
+      )}
     </div>
   );
 }

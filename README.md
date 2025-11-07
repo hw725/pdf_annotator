@@ -77,6 +77,25 @@ npm run build
 
 빌드 결과물은 `dist` 폴더에 생성됩니다.
 
+## 🐛 디버깅 모드
+
+RefManager API 통신 문제를 진단하려면 브라우저 콘솔에서 디버깅 모드를 활성화하세요:
+
+```javascript
+// 활성화
+localStorage.setItem("debug_refmanager", "true");
+
+// 비활성화
+localStorage.removeItem("debug_refmanager");
+```
+
+디버깅 모드에서는:
+- 모든 API 요청/응답의 상세 정보가 콘솔에 출력됩니다
+- 프록시 서버 로그 (Vercel Functions)에도 추가 정보가 기록됩니다
+- 업스트림 타겟 URL, 요청 바디, 응답 바디 미리보기 확인 가능
+
+**중요:** 프로덕션에서는 반드시 비활성화하세요 (토큰 정보가 로그에 노출될 수 있음)
+
 ## 🔗 RefManager와 연동
 
 ### URL 파라미터
