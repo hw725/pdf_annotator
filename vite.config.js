@@ -17,12 +17,38 @@ function localProxyPlugin() {
             return;
           }
 
+          // normalize Google Drive viewer/share URLs to direct download endpoint
+          const normalizeTarget = (rawUrl) => {
+            try {
+              const u = new URL(rawUrl);
+              const host = u.hostname.toLowerCase();
+              if (host === "drive.google.com") {
+                const fileIdMatch = u.pathname.match(
+                  /\/file\/d\/([a-zA-Z0-9_-]+)\//
+                );
+                let fileId = fileIdMatch ? fileIdMatch[1] : null;
+                if (!fileId) fileId = u.searchParams.get("id");
+                if (fileId) {
+                  const direct = new URL("https://drive.google.com/uc");
+                  direct.searchParams.set("export", "download");
+                  direct.searchParams.set("id", fileId);
+                  return direct.toString();
+                }
+              }
+            } catch (_) {
+              // ignore
+            }
+            return rawUrl;
+          };
+
+          const normalized = normalizeTarget(target);
+
           const headers = {};
           if (req.headers["range"]) headers["Range"] = req.headers["range"]; // pass through Range
           if (req.headers["user-agent"])
             headers["User-Agent"] = req.headers["user-agent"]; // optional
 
-          const upstream = await fetch(target, {
+          const upstream = await fetch(normalized, {
             method: req.method || "GET",
             headers,
           });

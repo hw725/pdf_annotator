@@ -46,6 +46,30 @@ export default async function handler(request) {
     });
   }
 
+  // helper: normalize Google Drive viewer/share URLs to direct-download endpoint
+  const normalizeTarget = (rawUrl) => {
+    try {
+      const u = new URL(rawUrl);
+      const host = u.hostname.toLowerCase();
+      if (host === "drive.google.com") {
+        // /file/d/{id}/view or /file/d/{id}/preview
+        const fileIdMatch = u.pathname.match(/\/file\/d\/([a-zA-Z0-9_-]+)\//);
+        let fileId = fileIdMatch ? fileIdMatch[1] : null;
+        // /open?id={id} 또는 /uc?id={id}
+        if (!fileId) fileId = u.searchParams.get("id");
+        if (fileId) {
+          const direct = new URL("https://drive.google.com/uc");
+          direct.searchParams.set("export", "download");
+          direct.searchParams.set("id", fileId);
+          return direct.toString();
+        }
+      }
+    } catch (_) {
+      // ignore, return raw
+    }
+    return rawUrl;
+  };
+
   try {
     // Forward important headers for better upstream compatibility
     const headers = new Headers();
@@ -60,8 +84,11 @@ export default async function handler(request) {
     const referer = request.headers.get("referer");
     if (referer) headers.set("Referer", referer);
 
+    // Normalize common viewer URLs (e.g., Google Drive) to direct binary endpoints
+    const normalizedUrl = normalizeTarget(targetUrl);
+
     // Fetch the target PDF
-    const response = await fetch(targetUrl, {
+    const response = await fetch(normalizedUrl, {
       method: request.method,
       headers,
     });

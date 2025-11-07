@@ -97,6 +97,7 @@ export default function BetterPDFViewer({
   const [viewMode, setViewMode] = useState("fit-width");
   const [compatMode, setCompatMode] = useState(false); // Edge 호환(렌더모드: svg)
   const [exportBusy, setExportBusy] = useState(false);
+  const [base44Busy, setBase44Busy] = useState(false);
   const [localFile, setLocalFile] = useState(null);
   const [driveInfo, setDriveInfo] = useState({
     updatable: false,
@@ -396,6 +397,69 @@ export default function BetterPDFViewer({
     localFile,
     allHighlights,
     hasSource,
+  ]);
+
+  // Base44(RefManager)로 저장
+  const handleBase44Save = useCallback(async () => {
+    if (!hasSource) {
+      alert(
+        "먼저 PDF를 열어주세요. 상단의 '업로드' 또는 'URL' 버튼을 사용하세요."
+      );
+      return;
+    }
+    try {
+      setBase44Busy(true);
+      const { canUploadToBase44, uploadAnnotatedPdf } = await import(
+        "@/api/refManagerClient"
+      );
+      if (!canUploadToBase44()) {
+        alert(
+          "Base44 업로드를 사용할 수 없습니다. RefManager에서 전달한 토큰과 API URL이 필요합니다. RefManager 앱에서 이 Annotator를 다시 열어주세요."
+        );
+        return;
+      }
+
+      let blob;
+      if (effectiveReferenceId === "temp") {
+        const ab = await getSourceArrayBuffer();
+        blob = await exportPDFWithHighlights({
+          sourceArrayBuffer: ab,
+          highlights: allHighlights,
+        });
+      } else {
+        blob = await exportFromIndexedDB({
+          referenceId: effectiveReferenceId,
+          pdfCacheId: undefined,
+          getSourceArrayBuffer,
+        });
+      }
+
+      let baseName = "annotated";
+      if (localFile?.name) baseName = localFile.name.replace(/\.pdf$/i, "");
+      const filename = `${baseName} (annotated).pdf`;
+
+      const resp = await uploadAnnotatedPdf(
+        referenceId || effectiveReferenceId || "temp",
+        blob,
+        filename
+      );
+      const url = resp?.file_url;
+      alert(
+        url ? `Base44 저장 완료: ${url}` : "Base44 저장 완료. (파일 URL 없음)"
+      );
+    } catch (e) {
+      console.error("Base44 저장 실패", e);
+      alert(`Base44 저장 실패: ${e?.message || e}`);
+    } finally {
+      setBase44Busy(false);
+    }
+  }, [
+    hasSource,
+    effectiveReferenceId,
+    referenceId,
+    getSourceArrayBuffer,
+    allHighlights,
+    localFile,
   ]);
 
   // 초기 하이라이트 동기화
@@ -1060,7 +1124,7 @@ export default function BetterPDFViewer({
             <button
               className="btn drive"
               onClick={handleDriveSave}
-              disabled={exportBusy}
+              disabled={exportBusy || base44Busy}
               title={
                 driveInfo.updatable
                   ? "Drive에 주석 포함 업데이트"
@@ -1068,6 +1132,14 @@ export default function BetterPDFViewer({
               }
             >
               {driveInfo.updatable ? "Drive 업데이트" : "Drive 저장"}
+            </button>
+            <button
+              className="btn primary"
+              onClick={handleBase44Save}
+              disabled={exportBusy || base44Busy}
+              title="Base44(RefManager)로 주석 포함 PDF 저장"
+            >
+              Base44로 저장
             </button>
           </div>
           {!hasSource && (
@@ -1080,6 +1152,7 @@ export default function BetterPDFViewer({
             </span>
           )}
           {exportBusy && <span className="muted">내보내는 중…</span>}
+          {base44Busy && <span className="muted">Base44 저장 중…</span>}
         </div>
         {/* Supabase 연동 버튼 제거됨 */}
       </div>

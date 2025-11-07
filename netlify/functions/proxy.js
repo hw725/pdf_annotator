@@ -48,6 +48,28 @@ exports.handler = async (event) => {
     };
   }
 
+  // helper: normalize Google Drive viewer/share URLs to direct-download endpoint
+  const normalizeTarget = (rawUrl) => {
+    try {
+      const u = new URL(rawUrl);
+      const host = u.hostname.toLowerCase();
+      if (host === "drive.google.com") {
+        const fileIdMatch = u.pathname.match(/\/file\/d\/([a-zA-Z0-9_-]+)\//);
+        let fileId = fileIdMatch ? fileIdMatch[1] : null;
+        if (!fileId) fileId = u.searchParams.get("id");
+        if (fileId) {
+          const direct = new URL("https://drive.google.com/uc");
+          direct.searchParams.set("export", "download");
+          direct.searchParams.set("id", fileId);
+          return direct.toString();
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
+    return rawUrl;
+  };
+
   try {
     // Forward Range header
     const fetchHeaders = {};
@@ -65,8 +87,11 @@ exports.handler = async (event) => {
     const referer = event.headers["referer"] || event.headers["Referer"];
     if (referer) fetchHeaders["Referer"] = referer;
 
+    // Normalize common viewer URLs (e.g., Google Drive) to direct binary endpoints
+    const normalizedUrl = normalizeTarget(targetUrl);
+
     // Fetch the target PDF
-    const response = await fetch(targetUrl, {
+    const response = await fetch(normalizedUrl, {
       method: event.httpMethod,
       headers: fetchHeaders,
     });
