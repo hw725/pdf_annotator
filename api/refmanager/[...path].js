@@ -19,9 +19,11 @@ export default async function handler(request) {
     return new Response(null, {
       status: 204,
       headers: {
-        "Access-Control-Allow-Origin": url.origin,
+        "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Access-Control-Allow-Headers":
+          "Content-Type, Authorization, x-client-request-id",
+        "Access-Control-Expose-Headers": "Content-Type",
       },
     });
   }
@@ -59,7 +61,8 @@ export default async function handler(request) {
     });
 
     const passHeaders = {
-      "access-control-allow-origin": url.origin,
+      "access-control-allow-origin": "*",
+      "access-control-expose-headers": "Content-Type",
       "content-type": resp.headers.get("content-type") || "application/json",
     };
 
