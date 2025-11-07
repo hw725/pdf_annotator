@@ -14,6 +14,7 @@ function App() {
   const [annotations, setAnnotations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [pdfValid, setPdfValid] = useState(true);
 
   useEffect(() => {
     // URL 파라미터 파싱
@@ -96,6 +97,48 @@ function App() {
       setLoading(false);
     }
   };
+
+  // PDF 사전 검증: 응답이 실제 PDF인지 확인 (서버가 HTML/에러 페이지를 반환하는 경우 대비)
+  useEffect(() => {
+    (async () => {
+      try {
+        setPdfValid(true);
+        const url = pdfInfo?.pdfUrl || "";
+        if (!url) return;
+        const proxied = /^https?:\/\//i.test(url)
+          ? `/api/proxy?url=${encodeURIComponent(url)}`
+          : url;
+
+        // 첫 5바이트만 받아서 %PDF- 시그니처 확인
+        const res = await fetch(proxied, { headers: { Range: "bytes=0-4" } });
+        if (!res.ok) {
+          setError(`PDF 접근 실패: HTTP ${res.status}`);
+          setPdfValid(false);
+          return;
+        }
+        const ct = res.headers.get("content-type") || "";
+        const ab = await res.arrayBuffer();
+        const bytes = new Uint8Array(ab);
+        const isPdf =
+          bytes.length >= 5 &&
+          bytes[0] === 0x25 && // %
+          bytes[1] === 0x50 && // P
+          bytes[2] === 0x44 && // D
+          bytes[3] === 0x46 && // F
+          bytes[4] === 0x2d; // -
+        if (!isPdf) {
+          setError(
+            `PDF가 아닌 응답이 반환되었습니다. Content-Type: ${
+              ct || "(알 수 없음)"
+            }`
+          );
+          setPdfValid(false);
+        }
+      } catch (e) {
+        console.warn("PDF 사전 검증 실패(계속 진행)", e);
+      }
+    })();
+  }, [pdfInfo?.pdfUrl]);
 
   if (loading) {
     return (

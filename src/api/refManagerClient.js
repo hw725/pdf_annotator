@@ -38,12 +38,17 @@ function getAuthToken() {
 async function apiRequest(endpoint, options = {}) {
   const token = getAuthToken();
   const apiBaseUrl = getApiBaseUrl();
+  const requestId = `req-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
 
-  const response = await fetch(`${apiBaseUrl}${endpoint}`, {
+  const url = `${apiBaseUrl}${endpoint}`;
+  const response = await fetch(url, {
     ...options,
     headers: {
       "Content-Type": "application/json",
       Authorization: token ? `Bearer ${token}` : "",
+      "x-client-request-id": requestId,
       ...options.headers,
     },
   });
@@ -51,19 +56,41 @@ async function apiRequest(endpoint, options = {}) {
   if (!response.ok) {
     // 에러 바디를 최대한 상세히 추출 (JSON -> text 순)
     let message = `HTTP ${response.status}`;
+    let details = null;
     try {
       const data = await response.json();
       if (data && (data.message || data.error)) {
         message = data.message || data.error;
+        details = data;
       }
     } catch {
       try {
         const text = await response.text();
-        if (text) message = text;
+        if (text) {
+          message = text;
+          details = text;
+        }
       } catch {
         // ignore
       }
     }
+    // 추가 진단 로그: 어디로 어떤 페이로드를 보냈는지 파악 도움
+    try {
+      const bodyPreview = options.body
+        ? JSON.stringify(JSON.parse(options.body))
+        : undefined;
+      console.warn(
+        "RefManager API 오류",
+        {
+          url,
+          endpoint,
+          status: response.status,
+          requestId,
+          body: bodyPreview,
+        },
+        details || ""
+      );
+    } catch {}
     throw new Error(message || "API 요청 실패");
   }
 

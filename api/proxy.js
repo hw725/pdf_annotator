@@ -47,12 +47,18 @@ export default async function handler(request) {
   }
 
   try {
-    // Forward Range header for PDF streaming
+    // Forward important headers for better upstream compatibility
     const headers = new Headers();
     const rangeHeader = request.headers.get("range");
-    if (rangeHeader) {
-      headers.set("Range", rangeHeader);
-    }
+    if (rangeHeader) headers.set("Range", rangeHeader);
+    const ua = request.headers.get("user-agent");
+    if (ua) headers.set("User-Agent", ua);
+    const accept = request.headers.get("accept");
+    if (accept) headers.set("Accept", accept);
+    const lang = request.headers.get("accept-language");
+    if (lang) headers.set("Accept-Language", lang);
+    const referer = request.headers.get("referer");
+    if (referer) headers.set("Referer", referer);
 
     // Fetch the target PDF
     const response = await fetch(targetUrl, {

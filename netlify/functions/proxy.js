@@ -55,6 +55,15 @@ exports.handler = async (event) => {
     if (rangeHeader) {
       fetchHeaders["Range"] = rangeHeader;
     }
+    const ua = event.headers["user-agent"] || event.headers["User-Agent"];
+    if (ua) fetchHeaders["User-Agent"] = ua;
+    const accept = event.headers["accept"] || event.headers["Accept"];
+    if (accept) fetchHeaders["Accept"] = accept;
+    const lang =
+      event.headers["accept-language"] || event.headers["Accept-Language"];
+    if (lang) fetchHeaders["Accept-Language"] = lang;
+    const referer = event.headers["referer"] || event.headers["Referer"];
+    if (referer) fetchHeaders["Referer"] = referer;
 
     // Fetch the target PDF
     const response = await fetch(targetUrl, {
