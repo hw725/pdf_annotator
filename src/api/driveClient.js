@@ -17,17 +17,28 @@ const loadGapi = () => {
     const script = document.createElement("script");
     script.src = "https://apis.google.com/js/api.js";
     script.onload = () => {
-      window.gapi.load("client", async () => {
-        await window.gapi.client.init({
-          apiKey: import.meta.env.VITE_GOOGLE_API_KEY,
-          discoveryDocs: [
-            "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest",
-          ],
+      try {
+        // gapi client만 로드하고 discovery는 생략 (fetch 기반으로 Drive 호출)
+        window.gapi.load("client", async () => {
+          try {
+            // 초기화는 선택적 — 일부 환경에서 discovery 호출이 502를 유발함
+            const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
+            if (apiKey) {
+              await window.gapi.client.init({ apiKey });
+            }
+          } catch (e) {
+            console.warn("gapi.client.init 경고(무시):", e?.message || e);
+          } finally {
+            gapiLoaded = true;
+            console.log("✅ Google API 클라이언트 로드(경량 모드)");
+            resolve();
+          }
         });
+      } catch (e) {
+        console.warn("gapi 로드 경고(무시):", e?.message || e);
         gapiLoaded = true;
-        console.log("✅ Google API 클라이언트 로드 완료");
         resolve();
-      });
+      }
     };
     document.body.appendChild(script);
   });
@@ -78,7 +89,7 @@ export const initDriveAPI = async () => {
       },
     });
 
-    console.log("✅ Google Drive API 초기화 완료");
+    console.log("✅ Google Drive API 초기화 완료(Discovery 미사용)");
     return true;
   } catch (e) {
     console.error("❌ Google Drive API 초기화 실패:", e);

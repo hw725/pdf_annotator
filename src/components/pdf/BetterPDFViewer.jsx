@@ -16,6 +16,9 @@ import {
 
 // Use the same worker strategy as refmanager to avoid bundler/URL issues
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+// Improve CJK rendering by configuring CMap and standard font data
+pdfjs.GlobalWorkerOptions.cMapUrl = `//unpkg.com/pdfjs-dist@${pdfjs.version}/cmaps/`;
+pdfjs.GlobalWorkerOptions.standardFontDataUrl = `//unpkg.com/pdfjs-dist@${pdfjs.version}/standard_fonts/`;
 
 export default function BetterPDFViewer({
   file,
