@@ -29,9 +29,82 @@ function getOrCreateAnnotsArray(pdfDoc, page) {
   return annots;
 }
 
+// 북마크 Catalog 커스텀 키 임베드
+function embedBookmarksCatalog(pdfDoc, bookmarks = []) {
+  try {
+    const sanitized = bookmarks.map((b) => ({
+      id: b.id,
+      page: b.page,
+      title: b.title,
+      created_at: b.created_at,
+    }));
+    pdfDoc.catalog.set(
+      PDFName.of("RefManagerBookmarks"),
+      pdfDoc.context.obj(sanitized)
+    );
+  } catch (e) {
+    console.warn("PDF 북마크 Catalog 임베드 실패", e);
+  }
+}
+
+// PDF Outline(Bookmarks) 생성 (간단 체인)
+function embedOutline(pdfDoc, bookmarks = [], pages) {
+  if (!bookmarks.length) return;
+  try {
+    // 페이지별 유효 북마크만 필터
+    const valid = bookmarks.filter(
+      (b) => b.page >= 1 && b.page <= pages.length
+    );
+    if (!valid.length) return;
+
+    const outlineRoot = pdfDoc.context.obj({
+      Type: PDFName.of("Outlines"),
+      Count: valid.length,
+    });
+    const outlineRootRef = pdfDoc.context.register(outlineRoot);
+
+    let firstRef = null;
+    let lastRef = null;
+    let prevRef = null;
+    valid.forEach((b, idx) => {
+      const page = pages[b.page - 1];
+      const destArray = pdfDoc.context.obj([
+        page.ref,
+        PDFName.of("XYZ"),
+        0,
+        page.getHeight(),
+        null,
+      ]);
+      const itemDict = pdfDoc.context.obj({
+        Title: PDFHexString.fromText(b.title || `p.${b.page}`),
+        Parent: outlineRootRef,
+        Dest: destArray,
+      });
+      if (prevRef) itemDict.set(PDFName.of("Prev"), prevRef);
+      const itemRef = pdfDoc.context.register(itemDict);
+      if (prevRef) {
+        const prevObj = pdfDoc.context.lookup(prevRef);
+        prevObj.set(PDFName.of("Next"), itemRef);
+      }
+      if (!firstRef) firstRef = itemRef;
+      lastRef = itemRef;
+      prevRef = itemRef;
+    });
+    if (firstRef) outlineRoot.set(PDFName.of("First"), firstRef);
+    if (lastRef) outlineRoot.set(PDFName.of("Last"), lastRef);
+    // Catalog에 설정
+    pdfDoc.catalog.set(PDFName.of("Outlines"), outlineRootRef);
+  } catch (e) {
+    console.warn("PDF Outline 생성 실패 (무시)", e);
+  }
+}
+
 export async function exportPDFWithHighlights({
   sourceArrayBuffer,
   highlights,
+  bookmarks = [],
+  includeOutline = true,
+  includeCatalogBookmarks = true,
 }) {
   const pdfDoc = await PDFDocument.load(sourceArrayBuffer);
   const pages = pdfDoc.getPages();
@@ -153,6 +226,15 @@ export async function exportPDFWithHighlights({
     }
   }
 
+  // 북마크 임베드 (Catalog 커스텀 키)
+  if (includeCatalogBookmarks) {
+    embedBookmarksCatalog(pdfDoc, bookmarks);
+  }
+  // 표준 Outline 생성
+  if (includeOutline) {
+    embedOutline(pdfDoc, bookmarks, pages);
+  }
+
   const out = await pdfDoc.save({ updateFieldAppearances: false });
   return new Blob([out], { type: "application/pdf" });
 }
@@ -172,6 +254,8 @@ export async function exportFromIndexedDB({
   referenceId,
   pdfCacheId,
   getSourceArrayBuffer,
+  includeOutline = true,
+  includeCatalogBookmarks = true,
 }) {
   // 1) 원본 PDF 가져오기
   const sourceArrayBuffer = await getSourceArrayBuffer();
@@ -193,9 +277,26 @@ export async function exportFromIndexedDB({
     all = await store.getAll();
   }
 
+  // 3) 북마크 로드 (reference 기반)
+  let bookmarks = [];
+  if (referenceId && referenceId !== "temp") {
+    try {
+      const bIndex = db
+        .transaction("bookmarks", "readonly")
+        .objectStore("bookmarks")
+        .index("reference_id");
+      bookmarks = await bIndex.getAll(referenceId);
+    } catch (e) {
+      console.warn("북마크 로드 실패 (무시)", e);
+    }
+  }
+
   const blob = await exportPDFWithHighlights({
     sourceArrayBuffer,
     highlights: all,
+    bookmarks,
+    includeOutline,
+    includeCatalogBookmarks,
   });
   return blob;
 }

@@ -25,11 +25,18 @@ function App() {
     const token = params.get("token");
     const refManagerApiBaseUrl = params.get("refManagerApiBaseUrl");
 
-    // Base44 파라미터가 없으면 로컬 개발 모드로 판단
-    // 기존 Base44 설정을 클리어하여 로컬 환경 보호
+    // Base44 파라미터가 없더라도, 배포 환경에서는 기존 API URL을 지우지 않습니다.
+    // (새로고침/직접 접속 시 프록시로 강제 폴백되어 500이 발생할 수 있음)
+    // 로컬 개발(localhost/127.0.0.1) 또는 명시적 clear=1 파라미터일 때만 초기화
+    const isLocalhost = /^(localhost|127\.0\.0\.1)$/.test(
+      window.location.hostname
+    );
+    const shouldClear = params.get("clear") === "1";
     if (!token && !refManagerApiBaseUrl) {
-      localStorage.removeItem("base44_auth_token");
-      localStorage.removeItem("refmanager_api_url");
+      if (isLocalhost || shouldClear) {
+        localStorage.removeItem("base44_auth_token");
+        localStorage.removeItem("refmanager_api_url");
+      }
     }
 
     // Base44에서 전달받은 인증 토큰을 localStorage에 저장
@@ -41,6 +48,15 @@ function App() {
     // Base44에서 전달받은 RefManager API URL을 localStorage에 저장
     if (refManagerApiBaseUrl) {
       localStorage.setItem("refmanager_api_url", refManagerApiBaseUrl);
+    } else {
+      // 유지된 API Base를 사용 중인지 디버그 로그로 확인
+      const existing = localStorage.getItem("refmanager_api_url");
+      if (existing && localStorage.getItem("debug_refmanager") === "true") {
+        console.log(
+          "[Annotator] Using persisted RefManager API Base:",
+          existing
+        );
+      }
     }
 
     // 참고문헌 ID와 pdfUrl이 모두 없으면 로컬 임시 모드로 시작

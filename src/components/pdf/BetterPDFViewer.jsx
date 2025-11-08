@@ -13,6 +13,7 @@ import {
   exportPDFWithHighlights,
   triggerDownload,
 } from "@/utils/pdfExport";
+import { parseHighlightsAndBookmarks } from "@/utils/pdfImport";
 
 // Use the same worker strategy as refmanager to avoid bundler/URL issues
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
@@ -185,6 +186,32 @@ export default function BetterPDFViewer({
     })();
   }, [originalPdfUrl]);
 
+  // 로컬/임시 파일을 다시 열었을 때, PDF 내 표준 Annotation을 역파싱하여 편집 가능하게 복원
+  useEffect(() => {
+    (async () => {
+      try {
+        if (effectiveReferenceId !== "temp") return; // 서버/DB 기반이면 스킵
+        if (!hasSource) return;
+        const ab = await getSourceArrayBuffer();
+        const { highlights: parsed } = await parseHighlightsAndBookmarks(ab);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setAllHighlights((prev) =>
+            dedupeHighlights([...(prev || []), ...parsed])
+          );
+        }
+      } catch (e) {
+        console.warn("PDF Annotation 역파싱 실패(무시)", e);
+      }
+    })();
+    // docKey 변경 시(다른 파일) 재시도
+  }, [
+    docKey,
+    effectiveReferenceId,
+    hasSource,
+    getSourceArrayBuffer,
+    dedupeHighlights,
+  ]);
+
   const handlePreviewExport = useCallback(async () => {
     if (!hasSource) {
       alert(
@@ -202,12 +229,15 @@ export default function BetterPDFViewer({
         blob = await exportPDFWithHighlights({
           sourceArrayBuffer: ab,
           highlights: allHighlights,
+          bookmarks: [],
         });
       } else {
         blob = await exportFromIndexedDB({
           referenceId: effectiveReferenceId,
           pdfCacheId: undefined,
           getSourceArrayBuffer,
+          includeOutline: true,
+          includeCatalogBookmarks: true,
         });
       }
       const url = URL.createObjectURL(blob);
@@ -242,12 +272,15 @@ export default function BetterPDFViewer({
         blob = await exportPDFWithHighlights({
           sourceArrayBuffer: ab,
           highlights: allHighlights,
+          bookmarks: [],
         });
       } else {
         blob = await exportFromIndexedDB({
           referenceId: effectiveReferenceId,
           pdfCacheId: undefined,
           getSourceArrayBuffer,
+          includeOutline: true,
+          includeCatalogBookmarks: true,
         });
       }
       await triggerDownload(blob, "annotated.pdf");
@@ -277,12 +310,15 @@ export default function BetterPDFViewer({
         blob = await exportPDFWithHighlights({
           sourceArrayBuffer: ab,
           highlights: allHighlights,
+          bookmarks: [],
         });
       } else {
         blob = await exportFromIndexedDB({
           referenceId: effectiveReferenceId,
           pdfCacheId: undefined,
           getSourceArrayBuffer,
+          includeOutline: true,
+          includeCatalogBookmarks: true,
         });
       }
       const defaultName =
