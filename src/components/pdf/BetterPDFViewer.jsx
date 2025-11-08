@@ -492,9 +492,19 @@ export default function BetterPDFViewer({
         filename
       );
       const url = resp?.file_url;
-      alert(
-        url ? `Base44 저장 완료: ${url}` : "Base44 저장 완료. (파일 URL 없음)"
-      );
+      if (url) {
+        const openNow = window.confirm(
+          `Base44 저장 완료. 업로드된 파일을 바로 열까요?\n${url}`
+        );
+        if (openNow) {
+          // 업로드된 주석 포함 PDF로 바로 전환
+          setLocalFile({ url });
+        } else {
+          alert(`Base44 저장 완료: ${url}`);
+        }
+      } else {
+        alert("Base44 저장 완료. (파일 URL 없음)");
+      }
     } catch (e) {
       console.error("Base44 저장 실패", e);
       alert(`Base44 저장 실패: ${e?.message || e}`);
@@ -618,6 +628,13 @@ export default function BetterPDFViewer({
       );
     }
     alert(msgs.join("\n"));
+    // 성공 시 업로드된 Base44 파일로 전환(있다면)
+    if (base44Result?.ok && base44Result.url) {
+      const openNow = window.confirm(
+        "업로드된 Base44 파일을 바로 열까요?\n" + base44Result.url
+      );
+      if (openNow) setLocalFile({ url: base44Result.url });
+    }
   }, [
     hasSource,
     effectiveReferenceId,
@@ -1178,6 +1195,56 @@ export default function BetterPDFViewer({
             setSelectedColor={setSelectedColor}
             compact
           />
+          <button
+            className="btn"
+            onClick={async () => {
+              try {
+                const now = Date.now();
+                const title = `페이지 ${currentPage}`;
+                if (effectiveReferenceId === "temp") {
+                  // override 메모리 북마크에 추가
+                  const id = `temp-bookmark-${now}-${Math.random()
+                    .toString(36)
+                    .slice(2, 8)}`;
+                  const updated = [
+                    ...(importedBookmarks || []),
+                    {
+                      id,
+                      page: currentPage,
+                      title,
+                      created_at: now,
+                    },
+                  ].sort(
+                    (a, b) =>
+                      (a.page || 0) - (b.page || 0) ||
+                      (a.created_at || 0) - (b.created_at || 0)
+                  );
+                  setImportedBookmarks(updated);
+                } else {
+                  // IndexedDB에 저장
+                  const dbMod = await import("@/db/localDB");
+                  const db = await dbMod.initDB();
+                  const id = `bookmark-${now}-${Math.random()
+                    .toString(36)
+                    .substr(2, 9)}`;
+                  await db.add("bookmarks", {
+                    id,
+                    reference_id: effectiveReferenceId,
+                    page: currentPage,
+                    title,
+                    created_at: now,
+                  });
+                  // 사이드바 갱신 유도
+                  setDbRefreshKey((k) => k + 1);
+                }
+              } catch (e) {
+                alert("북마크 추가 실패: " + (e?.message || e));
+              }
+            }}
+            title="현재 페이지 북마크 추가"
+          >
+            북마크 +
+          </button>
           <span className="muted">
             {Array.isArray(allHighlights) ? allHighlights.length : 0}개
           </span>
@@ -1347,6 +1414,9 @@ export default function BetterPDFViewer({
             effectiveReferenceId === "temp"
               ? (updated) => setImportedBookmarks(updated || [])
               : null
+          }
+          defaultActiveTab={
+            effectiveReferenceId === "temp" ? "bookmarks" : "highlights"
           }
         />
         <div

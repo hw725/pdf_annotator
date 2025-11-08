@@ -11,8 +11,11 @@ export default function PageHighlightsSidebar({
   refreshKey = 0,
   bookmarksOverride = null,
   onBookmarksOverrideChange = null,
+  defaultActiveTab = "highlights",
 }) {
-  const [activeTab, setActiveTab] = useState("highlights"); // "highlights" or "bookmarks"
+  const [activeTab, setActiveTab] = useState(
+    defaultActiveTab === "bookmarks" ? "bookmarks" : "highlights"
+  ); // "highlights" or "bookmarks"
   // 펼침/접힘 없이 항상 표시
   const MAX_ITEMS_PER_PAGE = 30;
   const [groupByPage, setGroupByPage] = useState(false); // 자동 목차(페이지 헤더) 대신 기본은 단일 목록

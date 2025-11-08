@@ -81,9 +81,10 @@ export const initDriveAPI = async () => {
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
   const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
 
-  if (!clientId || !apiKey) {
+  // API Key 없이도 동작하도록 완화 (토큰 발급과 fetch 기반 호출에는 clientId만 필수)
+  if (!clientId) {
     console.warn(
-      "⚠️ Google Drive API 키가 설정되지 않았습니다. .env.local을 확인하세요."
+      "⚠️ Google Drive Client ID가 설정되지 않았습니다. .env.local의 VITE_GOOGLE_CLIENT_ID를 확인하세요."
     );
     return false;
   }
@@ -111,7 +112,13 @@ export const initDriveAPI = async () => {
       },
     });
 
-    console.log("✅ Google Drive API 초기화 완료(Discovery 미사용)");
+    if (!apiKey) {
+      console.log(
+        "✅ Google Drive API 초기화 완료(Discovery 미사용, apiKey 생략 모드)"
+      );
+    } else {
+      console.log("✅ Google Drive API 초기화 완료(Discovery 미사용)");
+    }
     return true;
   } catch (e) {
     console.error("❌ Google Drive API 초기화 실패:", e);
@@ -271,11 +278,8 @@ export const getDriveUrl = (fileId) =>
 
 export const isDriveAPIAvailable = () => {
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-  const apiKey = import.meta.env.VITE_GOOGLE_API_KEY;
   return !!(
-    clientId &&
-    apiKey &&
-    clientId !== "your-client-id.apps.googleusercontent.com"
+    clientId && clientId !== "your-client-id.apps.googleusercontent.com"
   );
 };
 
