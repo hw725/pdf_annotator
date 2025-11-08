@@ -8,20 +8,24 @@
  * 우선순위: localStorage (Base44 전달) > 환경변수 > 프록시
  */
 function getApiBaseUrl() {
-  // Base44에서 URL 파라미터로 전달받은 API URL (런타임)
+  // 최우선 런타임 전달(localStorage)
   const base44ApiUrl = localStorage.getItem("refmanager_api_url");
-  if (base44ApiUrl) {
-    return base44ApiUrl;
-  }
-
-  // 환경변수에 설정된 직접 URL (빌드타임)
+  if (base44ApiUrl) return base44ApiUrl;
+  // 환경변수
   const envApiUrl = import.meta.env.VITE_REFMANAGER_API_URL;
-  if (envApiUrl) {
-    return envApiUrl;
-  }
+  if (envApiUrl) return envApiUrl;
+  return "/api/refmanager"; // 프록시 기본값
+}
 
-  // 기본값: same-origin Edge Function 프록시 (권장)
-  return "/api/refmanager";
+function getApiBaseUrlCandidates() {
+  const cands = [];
+  const ls = localStorage.getItem("refmanager_api_url");
+  const envApi = import.meta.env.VITE_REFMANAGER_API_URL;
+  if (ls) cands.push(ls);
+  if (envApi && envApi !== ls) cands.push(envApi);
+  // 항상 프록시를 마지막 후보로 추가 (중복 방지)
+  if (!cands.includes("/api/refmanager")) cands.push("/api/refmanager");
+  return cands;
 }
 
 /**
@@ -29,7 +33,19 @@ function getApiBaseUrl() {
  * Base44에서 URL 파라미터로 전달받아 localStorage에 저장된 토큰 사용
  */
 function getAuthToken() {
-  return localStorage.getItem("base44_auth_token") || "";
+  // 다양한 키 후보를 순차 탐색 (RefManager 전달 상황 또는 레거시 환경 호환)
+  const candidates = [
+    "base44_auth_token",
+    "base44-token",
+    "base44_token",
+    "auth_token",
+    "token",
+  ];
+  for (const k of candidates) {
+    const v = localStorage.getItem(k);
+    if (v) return v;
+  }
+  return "";
 }
 
 function isAbsoluteHttpUrl(url) {
@@ -46,96 +62,115 @@ function isAbsoluteHttpUrl(url) {
  */
 async function apiRequest(endpoint, options = {}) {
   const token = getAuthToken();
-  const apiBaseUrl = getApiBaseUrl();
-  const requestId = `req-${Date.now().toString(36)}-${Math.random()
+  const requestIdBase = `req-${Date.now().toString(36)}-${Math.random()
     .toString(36)
     .slice(2, 8)}`;
-
-  const url = `${apiBaseUrl}${endpoint}`;
-
-  // 디버깅: 요청 정보 전체 로깅
   const debugMode = localStorage.getItem("debug_refmanager") === "true";
-  if (debugMode) {
-    console.log(`[RefManager API Request] ${requestId}`, {
-      url,
-      method: options.method || "GET",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: token ? `Bearer ${token.slice(0, 20)}...` : "(없음)",
-        "x-client-request-id": requestId,
-      },
-      body: options.body ? JSON.parse(options.body) : undefined,
-    });
-  }
+  const candidates = getApiBaseUrlCandidates();
+  let lastError;
 
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: token ? `Bearer ${token}` : "",
-      "x-client-request-id": requestId,
-      ...options.headers,
-    },
-  });
-
-  // 응답 바디를 먼저 텍스트로 읽기 (재사용 가능하게)
-  const responseText = await response.text();
-
-  if (debugMode) {
-    console.log(`[RefManager API Response] ${requestId}`, {
-      status: response.status,
-      ok: response.ok,
-      statusText: response.statusText,
-      headers: Object.fromEntries(response.headers.entries()),
-      bodyPreview: responseText.slice(0, 500),
-    });
-  }
-
-  if (!response.ok) {
-    // 에러 바디를 최대한 상세히 추출
-    let message = `HTTP ${response.status}`;
-    let details = null;
-    try {
-      const data = JSON.parse(responseText);
-      if (data && (data.message || data.error)) {
-        message = data.message || data.error;
-        details = data;
-      } else {
-        details = data;
-      }
-    } catch {
-      if (responseText) {
-        message = responseText;
-        details = responseText;
-      }
+  for (let attempt = 0; attempt < candidates.length; attempt++) {
+    const base = candidates[attempt];
+    const requestId = `${requestIdBase}-a${attempt + 1}`;
+    const url = `${base}${endpoint}`;
+    if (debugMode) {
+      console.log(`[RefManager API Request] ${requestId}`, {
+        candidateIndex: attempt,
+        base,
+        url,
+        method: options.method || "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token ? `Bearer ${token.slice(0, 20)}...` : "(없음)",
+          "x-client-request-id": requestId,
+        },
+        body: options.body ? JSON.parse(options.body) : undefined,
+      });
     }
 
-    // 추가 진단 로그: 어디로 어떤 페이로드를 보냈는지 파악 도움
-    const bodyPreview = options.body
-      ? JSON.stringify(JSON.parse(options.body))
-      : undefined;
-    console.error(
-      "RefManager API 오류",
-      {
-        url,
-        endpoint,
+    let response;
+    let responseText = "";
+    try {
+      response = await fetch(url, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token ? `Bearer ${token}` : "",
+          "x-client-request-id": requestId,
+          ...options.headers,
+        },
+      });
+      responseText = await response.text();
+    } catch (networkErr) {
+      lastError = networkErr;
+      if (debugMode) {
+        console.warn(
+          `[RefManager API Network Error] ${requestId} -> 후보 다음 시도`,
+          networkErr
+        );
+      }
+      continue; // 다음 후보 시도
+    }
+
+    if (debugMode) {
+      console.log(`[RefManager API Response] ${requestId}`, {
         status: response.status,
-        requestId,
-        body: bodyPreview,
-      },
-      details || ""
-    );
+        ok: response.ok,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+        bodyPreview: responseText.slice(0, 500),
+      });
+    }
 
-    throw new Error(message || "API 요청 실패");
+    if (!response.ok) {
+      // 에러 바디 파싱
+      let message = `HTTP ${response.status}`;
+      let details = null;
+      try {
+        const data = JSON.parse(responseText);
+        if (data && (data.message || data.error)) {
+          message = data.message || data.error;
+          details = data;
+        } else {
+          details = data;
+        }
+      } catch {
+        if (responseText) {
+          message = responseText;
+          details = responseText;
+        }
+      }
+
+      lastError = new Error(message || "API 요청 실패");
+      if (debugMode) {
+        console.warn(
+          `[RefManager API Error] ${requestId} base=${base} status=${response.status} -> 후보 다음 시도`,
+          details || message
+        );
+      }
+      // 400/404는 재시도 무의미 → 즉시 중단
+      if (
+        response.status >= 400 &&
+        response.status < 500 &&
+        response.status !== 500
+      ) {
+        throw lastError;
+      }
+      // 500 또는 502/503 등은 다음 후보 재시도
+      continue;
+    }
+
+    // 성공 응답
+    try {
+      return JSON.parse(responseText);
+    } catch {
+      console.warn("응답을 JSON으로 파싱할 수 없음, 원본 반환:", responseText);
+      return { success: true, data: responseText };
+    }
   }
 
-  // 성공 응답 파싱
-  try {
-    return JSON.parse(responseText);
-  } catch {
-    console.warn("응답을 JSON으로 파싱할 수 없음, 원본 반환:", responseText);
-    return { success: true, data: responseText };
-  }
+  // 모든 후보 실패
+  throw lastError || new Error("API 요청 실패: 모든 후보 URL 실패");
 }
 
 /**
@@ -170,9 +205,14 @@ export async function getAnnotations(referenceId) {
  * @returns {Promise<{success: boolean, annotation: Object}>}
  */
 export async function saveAnnotation(annotationData) {
+  // reference_id만 있는 경우 referenceId 필드도 추가하여 백엔드 호환성 향상
+  let payload = { ...annotationData };
+  if (payload.reference_id && !payload.referenceId) {
+    payload.referenceId = payload.reference_id;
+  }
   return apiRequest("/saveAnnotation", {
     method: "POST",
-    body: JSON.stringify(annotationData),
+    body: JSON.stringify(payload),
   });
 }
 
@@ -184,7 +224,8 @@ export async function saveAnnotation(annotationData) {
 export async function deleteAnnotation(annotationId) {
   return apiRequest("/deleteAnnotation", {
     method: "POST",
-    body: JSON.stringify({ annotationId }),
+    // 서버 호환성을 위해 annotation_id도 함께 전송
+    body: JSON.stringify({ annotationId, annotation_id: annotationId }),
   });
 }
 

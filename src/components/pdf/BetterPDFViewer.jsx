@@ -94,6 +94,8 @@ export default function BetterPDFViewer({
   const [allHighlights, setAllHighlights] = useState([]);
   const [saving, setSaving] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
+  // 역파싱/임포트된 북마크( temp 세션용 메모리 )
+  const [importedBookmarks, setImportedBookmarks] = useState([]);
 
   // view modes & base sizes
   const [basePageWidth, setBasePageWidth] = useState(null);
@@ -193,11 +195,18 @@ export default function BetterPDFViewer({
         if (effectiveReferenceId !== "temp") return; // 서버/DB 기반이면 스킵
         if (!hasSource) return;
         const ab = await getSourceArrayBuffer();
-        const { highlights: parsed } = await parseHighlightsAndBookmarks(ab);
+        const { highlights: parsed, bookmarks: bm } =
+          await parseHighlightsAndBookmarks(ab);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setAllHighlights((prev) =>
             dedupeHighlights([...(prev || []), ...parsed])
           );
+        }
+        if (Array.isArray(bm) && bm.length > 0) {
+          // temp 세션용 메모리 북마크 저장
+          setImportedBookmarks(bm);
+        } else {
+          setImportedBookmarks([]);
         }
       } catch (e) {
         console.warn("PDF Annotation 역파싱 실패(무시)", e);
@@ -229,7 +238,7 @@ export default function BetterPDFViewer({
         blob = await exportPDFWithHighlights({
           sourceArrayBuffer: ab,
           highlights: allHighlights,
-          bookmarks: [],
+          bookmarks: importedBookmarks, // 임포트된 북마크 포함
         });
       } else {
         blob = await exportFromIndexedDB({
@@ -272,7 +281,7 @@ export default function BetterPDFViewer({
         blob = await exportPDFWithHighlights({
           sourceArrayBuffer: ab,
           highlights: allHighlights,
-          bookmarks: [],
+          bookmarks: importedBookmarks,
         });
       } else {
         blob = await exportFromIndexedDB({
@@ -310,7 +319,7 @@ export default function BetterPDFViewer({
         blob = await exportPDFWithHighlights({
           sourceArrayBuffer: ab,
           highlights: allHighlights,
-          bookmarks: [],
+          bookmarks: importedBookmarks,
         });
       } else {
         blob = await exportFromIndexedDB({
@@ -1205,6 +1214,9 @@ export default function BetterPDFViewer({
           onJumpToHighlight={scrollToHighlight}
           referenceId={effectiveReferenceId}
           refreshKey={dbRefreshKey}
+          bookmarksOverride={
+            effectiveReferenceId === "temp" ? importedBookmarks : null
+          }
         />
         <div
           ref={containerRef}

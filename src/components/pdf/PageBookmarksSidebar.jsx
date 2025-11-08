@@ -9,6 +9,7 @@ export default function PageBookmarksSidebar({
   currentPage,
   onJumpToPage,
   refreshKey = 0,
+  bookmarksOverride = null,
 }) {
   const [bookmarks, setBookmarks] = useState([]);
   const [newBookmarkTitle, setNewBookmarkTitle] = useState("");
@@ -17,6 +18,17 @@ export default function PageBookmarksSidebar({
   useEffect(() => {
     (async () => {
       try {
+        if (Array.isArray(bookmarksOverride)) {
+          // 임포트된 북마크( temp ) 우선 표시
+          const sorted = [...bookmarksOverride];
+          sorted.sort(
+            (a, b) =>
+              (a.page || 0) - (b.page || 0) ||
+              (a.created_at || 0) - (b.created_at || 0)
+          );
+          setBookmarks(sorted);
+          return;
+        }
         if (!referenceId || referenceId === "temp") {
           setBookmarks([]);
           return;
@@ -27,7 +39,6 @@ export default function PageBookmarksSidebar({
           "reference_id",
           referenceId
         );
-        // 페이지 오름차순, 생성 시각 오름차순
         all.sort(
           (a, b) =>
             (a.page || 0) - (b.page || 0) ||
@@ -38,12 +49,16 @@ export default function PageBookmarksSidebar({
         console.warn("북마크 로드 실패", e);
       }
     })();
-  }, [referenceId, refreshKey]);
+  }, [referenceId, refreshKey, bookmarksOverride]);
 
   // 북마크 추가
   const handleAddBookmark = async () => {
-    if (!referenceId || referenceId === "temp") {
-      alert("임시 세션에서는 북마크를 추가할 수 없습니다.");
+    if (
+      !referenceId ||
+      referenceId === "temp" ||
+      Array.isArray(bookmarksOverride)
+    ) {
+      alert("이 모드에서는 북마크를 추가할 수 없습니다 (임포트 전용).");
       return;
     }
     const title = newBookmarkTitle.trim() || `페이지 ${currentPage}`;
@@ -81,6 +96,14 @@ export default function PageBookmarksSidebar({
     const ok = window.confirm(`"${bookmark.title}" 북마크를 삭제할까요?`);
     if (!ok) return;
     try {
+      if (
+        !referenceId ||
+        referenceId === "temp" ||
+        Array.isArray(bookmarksOverride)
+      ) {
+        alert("임포트된 북마크는 여기서 삭제할 수 없습니다.");
+        return;
+      }
       const db = await initDB();
       await db.delete("bookmarks", bookmark.id);
       setBookmarks((prev) => prev.filter((b) => b.id !== bookmark.id));

@@ -177,27 +177,52 @@ const PageHighlightOverlay = ({
   // 좌표에 포함되는 하이라이트 찾기 (상단 우선)
   const hitTestHighlightAt = useCallback(
     (x, y) => {
+      // 현재 캔버스/페이지 크기
+      const pageEl = getPdfPageElement();
+      const overlay = canvasRef.current;
+      const currentLogicalW =
+        pageEl?.getBoundingClientRect().width || overlay?.width || 1;
+      const currentLogicalH =
+        pageEl?.getBoundingClientRect().height || overlay?.height || 1;
+      const canvasW = overlay?.width || currentLogicalW;
+      const canvasH = overlay?.height || currentLogicalH;
+
       // 뒤에서부터 탐색하여 화면상 위에 그려진 것을 우선
       for (let i = highlights.length - 1; i >= 0; i--) {
         const h = highlights[i];
+        let baseW = h.base_size?.width || currentLogicalW;
+        let baseH = h.base_size?.height || currentLogicalH;
+        // 레거시(캔버스 픽셀로 저장) 감지 후 보정
+        const sampleRect =
+          h.type === "area" && h.area ? h.area : h.rects && h.rects[0];
+        if (sampleRect && baseW > 0 && baseH > 0) {
+          const ratioX = sampleRect.width / baseW;
+          const ratioY = sampleRect.height / baseH;
+          if (ratioX > 1.2 || ratioY > 1.2) {
+            // 임의 임계값
+            baseW = canvasW;
+            baseH = canvasH;
+          }
+        }
+        const scaleX = canvasW / baseW;
+        const scaleY = canvasH / baseH;
+
         if (h.type === "area" && h.area) {
           const r = h.area;
-          if (
-            x >= r.x &&
-            x <= r.x + r.width &&
-            y >= r.y &&
-            y <= r.y + r.height
-          ) {
+          const rx = r.x * scaleX;
+          const ry = r.y * scaleY;
+          const rw = r.width * scaleX;
+          const rh = r.height * scaleY;
+          if (x >= rx && x <= rx + rw && y >= ry && y <= ry + rh) {
             return h;
           }
         } else if (h.type === "text" && Array.isArray(h.rects)) {
           for (const r of h.rects) {
-            if (
-              x >= r.x &&
-              x <= r.x + r.width &&
-              y >= r.y &&
-              y <= r.y + r.height
-            ) {
+            const rx = r.x * scaleX;
+            const ry = r.y * scaleY;
+            const rw = r.width * scaleX;
+            const rh = r.height * scaleY;
+            if (x >= rx && x <= rx + rw && y >= ry && y <= ry + rh) {
               return h;
             }
           }
@@ -410,17 +435,11 @@ const PageHighlightOverlay = ({
     }
     const scaleX = overlay.width / (pageRect.width || 1);
     const scaleY = overlay.height / (pageRect.height || 1);
-    const rectsCanvas = rectsOnPageCss.map((r) => ({
-      x: r.x * scaleX,
-      y: r.y * scaleY,
-      width: r.width * scaleX,
-      height: r.height * scaleY,
-    }));
-
     saveHighlight({
       type: "text",
       text,
-      rects: rectsCanvas,
+      // 저장은 base(논리 CSS px) 좌표계로 일관화
+      rects: rectsOnPageCss,
       color: selectedColor,
       note: "",
     });
@@ -490,9 +509,23 @@ const PageHighlightOverlay = ({
     if (!isDrawing || highlightMode !== "area") return;
 
     if (drawRect && drawRect.width > 10 && drawRect.height > 10) {
+      // canvas px -> 논리 CSS px로 변환 후 저장
+      const pageEl = getPdfPageElement();
+      const overlay = canvasRef.current;
+      const pageRect = pageEl?.getBoundingClientRect();
+      const scaleX =
+        overlay && pageRect ? overlay.width / (pageRect.width || 1) : 1;
+      const scaleY =
+        overlay && pageRect ? overlay.height / (pageRect.height || 1) : 1;
+      const areaCss = {
+        x: drawRect.x / (scaleX || 1),
+        y: drawRect.y / (scaleY || 1),
+        width: drawRect.width / (scaleX || 1),
+        height: drawRect.height / (scaleY || 1),
+      };
       saveHighlight({
         type: "area",
-        area: drawRect,
+        area: areaCss,
         color: selectedColor,
         note: "",
       });
@@ -603,12 +636,29 @@ const PageHighlightOverlay = ({
       const opacity = colorObj?.opacity || 0.3;
 
       // 좌표 스케일 보정: base_size 대비 현재 크기 비율
-      const baseW = highlight.base_size?.width || currentLogicalW;
-      const baseH = highlight.base_size?.height || currentLogicalH;
-      const scaleX =
-        (currentLogicalW / baseW) * (canvas.width / currentLogicalW);
-      const scaleY =
-        (currentLogicalH / baseH) * (canvas.height / currentLogicalH);
+      let baseW = highlight.base_size?.width || currentLogicalW;
+      let baseH = highlight.base_size?.height || currentLogicalH;
+      const sampleRect =
+        highlight.type === "area" && highlight.area
+          ? highlight.area
+          : highlight.rects && highlight.rects[0];
+      if (sampleRect && baseW > 0 && baseH > 0) {
+        const ratioX = sampleRect.width / baseW;
+        const ratioY = sampleRect.height / baseH;
+        if (ratioX > 1.2 || ratioY > 1.2) {
+          // 레거시 데이터: base를 캔버스 크기로 재설정해 왜곡 줄이기
+          baseW = canvas.width;
+          baseH = canvas.height;
+        }
+      }
+      // base 좌표(논리 CSS px)를 캔버스 픽셀로 변환: (canvas.width / currentLogicalW) * (baseLogical / baseW)
+      // base_size는 논리 CSS px로 저장되므로 currentLogicalW/baseW ≈ 1, 다만 최초 저장 당시 페이지 크기와 현재가 달라졌을 경우 보정
+      const scaleToCanvasX = canvas.width / currentLogicalW;
+      const scaleToCanvasY = canvas.height / currentLogicalH;
+      const rescaleX = currentLogicalW / baseW;
+      const rescaleY = currentLogicalH / baseH;
+      const scaleX = scaleToCanvasX * rescaleX;
+      const scaleY = scaleToCanvasY * rescaleY;
 
       if (highlight.type === "area" && highlight.area) {
         ctx.fillStyle = highlight.color;

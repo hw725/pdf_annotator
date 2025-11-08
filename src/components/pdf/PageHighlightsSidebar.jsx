@@ -9,6 +9,7 @@ export default function PageHighlightsSidebar({
   onJumpToHighlight,
   referenceId,
   refreshKey = 0,
+  bookmarksOverride = null,
 }) {
   const [activeTab, setActiveTab] = useState("highlights"); // "highlights" or "bookmarks"
   // 펼침/접힘 없이 항상 표시
@@ -333,6 +334,7 @@ export default function PageHighlightsSidebar({
           currentPage={currentPage}
           onJumpToPage={onJumpToPage}
           refreshKey={refreshKey}
+          bookmarksOverride={bookmarksOverride}
         />
       )}
     </div>

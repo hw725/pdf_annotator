@@ -7,6 +7,7 @@ import {
 } from "./api/refManagerClient";
 import PDFViewer from "./components/pdf/BetterPDFViewer";
 import "./App.css";
+import { useMemo } from "react";
 
 function App() {
   const [referenceId, setReferenceId] = useState(null);
@@ -15,6 +16,11 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [pdfValid, setPdfValid] = useState(true);
+  const [debugPanelOpen, setDebugPanelOpen] = useState(false);
+  const debugMode = useMemo(
+    () => localStorage.getItem("debug_refmanager") === "true",
+    []
+  );
 
   useEffect(() => {
     // URL 파라미터 파싱
@@ -22,8 +28,13 @@ function App() {
     const refId = params.get("referenceId");
     const title = params.get("title");
     const pdfUrl = params.get("pdfUrl");
-    const token = params.get("token");
-    const refManagerApiBaseUrl = params.get("refManagerApiBaseUrl");
+    // token 기본은 token, 보조로 auth_token도 허용
+    const token = params.get("token") || params.get("auth_token");
+    // RefManager에서 전달하는 API URL은 apiUrl로 제공됨. 하위 호환을 위해 두 키 모두 지원
+    const refManagerApiBaseUrl =
+      params.get("refManagerApiBaseUrl") ||
+      params.get("apiUrl") ||
+      params.get("api_url");
 
     // Base44 파라미터가 없더라도, 배포 환경에서는 기존 API URL을 지우지 않습니다.
     // (새로고침/직접 접속 시 프록시로 강제 폴백되어 500이 발생할 수 있음)
@@ -48,6 +59,12 @@ function App() {
     // Base44에서 전달받은 RefManager API URL을 localStorage에 저장
     if (refManagerApiBaseUrl) {
       localStorage.setItem("refmanager_api_url", refManagerApiBaseUrl);
+      if (localStorage.getItem("debug_refmanager") === "true") {
+        console.log(
+          "[Annotator] Set RefManager API Base from URL:",
+          refManagerApiBaseUrl
+        );
+      }
     } else {
       // 유지된 API Base를 사용 중인지 디버그 로그로 확인
       const existing = localStorage.getItem("refmanager_api_url");
@@ -191,9 +208,20 @@ function App() {
             <span className="annotation-count">
               {annotations.length}개 주석
             </span>
+            {debugMode && (
+              <button
+                className="btn btn-sm"
+                style={{ marginLeft: 12 }}
+                onClick={() => setDebugPanelOpen((o) => !o)}
+              >
+                {debugPanelOpen ? "디버그 닫기" : "디버그"}
+              </button>
+            )}
           </div>
         </div>
       </header>
+
+      {debugMode && debugPanelOpen && <DebugPanel referenceId={referenceId} />}
 
       <main className="app-main">
         {/** 외부 PDF는 /api/proxy를 통해 요청하여 CORS/Range 문제를 회피 */}
@@ -220,3 +248,129 @@ function App() {
 }
 
 export default App;
+
+function DebugPanel({ referenceId }) {
+  const tokenKeys = [
+    "base44_auth_token",
+    "base44-token",
+    "base44_token",
+    "auth_token",
+    "token",
+  ];
+  const tokens = tokenKeys
+    .map((k) => ({ key: k, value: localStorage.getItem(k) }))
+    .filter((t) => t.value);
+  const apiUrl = localStorage.getItem("refmanager_api_url") || "(없음)";
+  const effectiveToken = tokens[0]?.value || "(토큰 없음)";
+
+  const copy = (text) => {
+    try {
+      navigator.clipboard.writeText(text);
+      alert("복사 완료");
+    } catch (e) {
+      console.warn("클립보드 복사 실패", e);
+    }
+  };
+
+  const pingApi = async () => {
+    try {
+      const base = apiUrl.replace(/\/$/, "");
+      const resp = await fetch(base + "/health", {
+        headers: {
+          Authorization: effectiveToken ? `Bearer ${effectiveToken}` : "",
+        },
+      });
+      const text = await resp.text();
+      alert(`Health 응답: HTTP ${resp.status}\n${text.slice(0, 300)}`);
+    } catch (e) {
+      alert("Health 호출 실패: " + (e.message || e));
+    }
+  };
+
+  const testList = async () => {
+    if (!referenceId || referenceId === "temp") {
+      alert("referenceId가 필요합니다.");
+      return;
+    }
+    try {
+      const base = apiUrl.replace(/\/$/, "");
+      const body = JSON.stringify({ referenceId, reference_id: referenceId });
+      const resp = await fetch(base + "/getAnnotations", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: effectiveToken ? `Bearer ${effectiveToken}` : "",
+        },
+        body,
+      });
+      const text = await resp.text();
+      alert(`getAnnotations: HTTP ${resp.status}\n${text.slice(0, 800)}`);
+    } catch (e) {
+      alert("getAnnotations 테스트 실패: " + (e.message || e));
+    }
+  };
+
+  return (
+    <div
+      style={{
+        background: "#1f2937",
+        color: "#f9fafb",
+        padding: "12px 16px",
+        fontSize: 12,
+      }}
+    >
+      <div style={{ fontWeight: 600, marginBottom: 8 }}>디버그 패널</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
+        <div>
+          <div style={{ fontWeight: 600 }}>API Base</div>
+          <div style={{ wordBreak: "break-all" }}>{apiUrl}</div>
+          <button
+            className="btn btn-sm"
+            style={{ marginTop: 4 }}
+            onClick={() => copy(apiUrl)}
+          >
+            복사
+          </button>
+        </div>
+        <div>
+          <div style={{ fontWeight: 600 }}>Token Candidates</div>
+          {tokens.length === 0 && <div>(발견된 토큰 없음)</div>}
+          {tokens.map((t) => (
+            <div
+              key={t.key}
+              style={{ marginBottom: 4 }}
+            >
+              <span style={{ color: "#93c5fd" }}>{t.key}:</span>{" "}
+              <span style={{ wordBreak: "break-all" }}>
+                {t.value.slice(0, 60)}...
+              </span>
+              <button
+                className="btn btn-sm"
+                style={{ marginLeft: 6 }}
+                onClick={() => copy(t.value)}
+              >
+                복사
+              </button>
+            </div>
+          ))}
+        </div>
+        <div>
+          <div style={{ fontWeight: 600 }}>Quick Actions</div>
+          <button
+            className="btn btn-sm"
+            onClick={pingApi}
+          >
+            /health 호출
+          </button>
+          <button
+            className="btn btn-sm"
+            style={{ marginLeft: 6 }}
+            onClick={testList}
+          >
+            getAnnotations 테스트
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
