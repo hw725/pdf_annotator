@@ -23,6 +23,8 @@ const PageHighlightOverlay = ({
   onHighlightDeleted,
   scale,
   refreshKey,
+  basePageWidth,
+  basePageHeight,
 }) => {
   const [highlights, setHighlights] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -339,13 +341,41 @@ const PageHighlightOverlay = ({
           .substr(2, 9)}`;
 
         // base_size는 PDF 페이지의 논리 크기(DPR 무시한 CSS px 기준)로 저장
+        // 안정화: 저장 기준은 최초 로드된 basePageWidth/Height(실제 PDF viewport scale=1) 혹은 현재 페이지 CSS 크기
         const pageEl = getPdfPageElement();
-        const logicalSize = pageEl
-          ? {
-              width: pageEl.getBoundingClientRect().width,
-              height: pageEl.getBoundingClientRect().height,
-            }
+        const currentCss = pageEl
+          ? pageEl.getBoundingClientRect()
           : { width: canvasSize.width, height: canvasSize.height };
+        const logicalSize = {
+          width: basePageWidth || currentCss.width,
+          height: basePageHeight || currentCss.height,
+        };
+
+        // fraction 좌표(0..1) 추가 저장 -> 렌더 시 재계산 안정화
+        const toFractionRects = (rects, base) =>
+          (rects || []).map((r) => ({
+            fx: (r.x || 0) / (base.width || 1),
+            fy: (r.y || 0) / (base.height || 1),
+            fw: (r.width || 0) / (base.width || 1),
+            fh: (r.height || 0) / (base.height || 1),
+            x: r.x,
+            y: r.y,
+            width: r.width,
+            height: r.height,
+          }));
+        const toFractionArea = (area, base) =>
+          area
+            ? {
+                fx: (area.x || 0) / (base.width || 1),
+                fy: (area.y || 0) / (base.height || 1),
+                fw: (area.width || 0) / (base.width || 1),
+                fh: (area.height || 0) / (base.height || 1),
+                x: area.x,
+                y: area.y,
+                width: area.width,
+                height: area.height,
+              }
+            : null;
 
         const highlight = {
           id,
@@ -354,6 +384,15 @@ const PageHighlightOverlay = ({
           page: pageNumber,
           ...highlightData,
           base_size: logicalSize,
+          // fraction 좌표 보조 필드
+          rects:
+            highlightData.type === "text"
+              ? toFractionRects(highlightData.rects, logicalSize)
+              : highlightData.rects,
+          area:
+            highlightData.type === "area"
+              ? toFractionArea(highlightData.area, logicalSize)
+              : highlightData.area,
           created_at: Date.now(),
           synced: false,
         };
@@ -426,20 +465,23 @@ const PageHighlightOverlay = ({
 
     if (rectsOnPageCss.length === 0) return;
 
-    // CSS px -> 캔버스 좌표 변환
-    const overlay = canvasRef.current;
-    if (!overlay) return;
-    // 오버레이 크기가 반영되지 않았으면 즉시 동기화
-    if ((overlay.width || 0) < 2 || (overlay.height || 0) < 2) {
-      ensureOverlaySize();
-    }
-    const scaleX = overlay.width / (pageRect.width || 1);
-    const scaleY = overlay.height / (pageRect.height || 1);
+    // CSS 직사각형을 base 좌표계(가능하면 PDF viewport 기준)로 변환하여 저장
+    const baseW = basePageWidth || pageRect.width || 1;
+    const baseH = basePageHeight || pageRect.height || 1;
+    const factorX = baseW / (pageRect.width || 1);
+    const factorY = baseH / (pageRect.height || 1);
+    const rectsInBase = rectsOnPageCss.map((r) => ({
+      x: r.x * factorX,
+      y: r.y * factorY,
+      width: r.width * factorX,
+      height: r.height * factorY,
+    }));
+
     saveHighlight({
       type: "text",
       text,
-      // 저장은 base(논리 CSS px) 좌표계로 일관화
-      rects: rectsOnPageCss,
+      // 저장은 base 좌표계(가능하면 PDF viewport 기준)
+      rects: rectsInBase,
       color: selectedColor,
       note: "",
     });
@@ -511,17 +553,20 @@ const PageHighlightOverlay = ({
     if (drawRect && drawRect.width > 10 && drawRect.height > 10) {
       // canvas px -> 논리 CSS px로 변환 후 저장
       const pageEl = getPdfPageElement();
-      const overlay = canvasRef.current;
       const pageRect = pageEl?.getBoundingClientRect();
-      const scaleX =
-        overlay && pageRect ? overlay.width / (pageRect.width || 1) : 1;
-      const scaleY =
-        overlay && pageRect ? overlay.height / (pageRect.height || 1) : 1;
+      const cssW = pageRect?.width || 1;
+      const cssH = pageRect?.height || 1;
+      const baseW = basePageWidth || cssW;
+      const baseH = basePageHeight || cssH;
+      const factorX = baseW / cssW;
+      const factorY = baseH / cssH;
       const areaCss = {
-        x: drawRect.x / (scaleX || 1),
-        y: drawRect.y / (scaleY || 1),
-        width: drawRect.width / (scaleX || 1),
-        height: drawRect.height / (scaleY || 1),
+        x: (drawRect.x / (canvasRef.current?.width || 1)) * cssW * factorX,
+        y: (drawRect.y / (canvasRef.current?.height || 1)) * cssH * factorY,
+        width:
+          (drawRect.width / (canvasRef.current?.width || 1)) * cssW * factorX,
+        height:
+          (drawRect.height / (canvasRef.current?.height || 1)) * cssH * factorY,
       };
       saveHighlight({
         type: "area",
@@ -636,8 +681,10 @@ const PageHighlightOverlay = ({
       const opacity = colorObj?.opacity || 0.3;
 
       // 좌표 스케일 보정: base_size 대비 현재 크기 비율
-      let baseW = highlight.base_size?.width || currentLogicalW;
-      let baseH = highlight.base_size?.height || currentLogicalH;
+      let baseW =
+        highlight.base_size?.width || basePageWidth || currentLogicalW;
+      let baseH =
+        highlight.base_size?.height || basePageHeight || currentLogicalH;
       const sampleRect =
         highlight.type === "area" && highlight.area
           ? highlight.area
@@ -661,24 +708,39 @@ const PageHighlightOverlay = ({
       const scaleY = scaleToCanvasY * rescaleY;
 
       if (highlight.type === "area" && highlight.area) {
+        const src = highlight.area;
+        const hasFraction = src.fx !== undefined;
+        const baseRefW = baseW || 1;
+        const baseRefH = baseH || 1;
+        const drawX = hasFraction ? src.fx * baseRefW : src.x;
+        const drawY = hasFraction ? src.fy * baseRefH : src.y;
+        const drawW = hasFraction ? src.fw * baseRefW : src.width;
+        const drawH = hasFraction ? src.fh * baseRefH : src.height;
         ctx.fillStyle = highlight.color;
         ctx.globalAlpha = opacity;
         ctx.fillRect(
-          highlight.area.x * scaleX,
-          highlight.area.y * scaleY,
-          highlight.area.width * scaleX,
-          highlight.area.height * scaleY
+          drawX * scaleX,
+          drawY * scaleY,
+          drawW * scaleX,
+          drawH * scaleY
         );
         ctx.globalAlpha = 1.0;
       } else if (highlight.type === "text" && highlight.rects) {
         ctx.fillStyle = highlight.color;
         ctx.globalAlpha = opacity;
         highlight.rects.forEach((rect) => {
+          const hasFraction = rect.fx !== undefined;
+          const baseRefW = baseW || 1;
+          const baseRefH = baseH || 1;
+          const drawX = hasFraction ? rect.fx * baseRefW : rect.x;
+          const drawY = hasFraction ? rect.fy * baseRefH : rect.y;
+          const drawW = hasFraction ? rect.fw * baseRefW : rect.width;
+          const drawH = hasFraction ? rect.fh * baseRefH : rect.height;
           ctx.fillRect(
-            rect.x * scaleX,
-            rect.y * scaleY,
-            rect.width * scaleX,
-            rect.height * scaleY
+            drawX * scaleX,
+            drawY * scaleY,
+            drawW * scaleX,
+            drawH * scaleY
           );
         });
         ctx.globalAlpha = 1.0;

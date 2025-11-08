@@ -12,6 +12,7 @@ export default function PageHighlightsSidebar({
   bookmarksOverride = null,
   onBookmarksOverrideChange = null,
   defaultActiveTab = "highlights",
+  onDeleteHighlight = null,
 }) {
   const [activeTab, setActiveTab] = useState(
     defaultActiveTab === "bookmarks" ? "bookmarks" : "highlights"
@@ -23,6 +24,8 @@ export default function PageHighlightsSidebar({
   const byPage = useMemo(() => {
     // 각 페이지별로 별개 그룹을 만들고, 각 페이지 내에서만 중복 제거
     const makeDocSig = (h) => {
+      // 동일 좌표/텍스트라도 id가 다르면 별개 항목으로 취급하여 깜빡임 방지
+      const idPart = h.id || h.annotation_id || h.created_at || "";
       const type = h.type || (Array.isArray(h.rects) ? "text" : "area");
       const color = h.color || "";
       if (type === "text" && Array.isArray(h.rects)) {
@@ -35,16 +38,16 @@ export default function PageHighlightsSidebar({
           .sort()
           .join("|");
         const text = (h.text || "").trim();
-        return `${type}|${color}|${rectSig}|${text}`;
+        return `${idPart}|${type}|${color}|${rectSig}|${text}`;
       }
       if (h.area) {
         const r = h.area;
         const rectSig = [r.x, r.y, r.width, r.height]
           .map((v) => Math.round(Number(v) || 0))
           .join(":");
-        return `area|${color}|${rectSig}`;
+        return `${idPart}|area|${color}|${rectSig}`;
       }
-      return `${type}|${color}`;
+      return `${idPart}|${type}|${color}`;
     };
 
     const map = new Map();
@@ -77,6 +80,7 @@ export default function PageHighlightsSidebar({
     // 각 페이지별로 중복 제거한 뒤 전체를 플랫하게 정렬
     // (같은 내용이 다른 페이지에 있으면 각각 표시)
     const makeDocSig = (h) => {
+      const idPart = h.id || h.annotation_id || h.created_at || "";
       const type = h.type || (Array.isArray(h.rects) ? "text" : "area");
       const color = h.color || "";
       const page = h.page || h.page_number || 1;
@@ -90,16 +94,16 @@ export default function PageHighlightsSidebar({
           .sort()
           .join("|");
         const text = (h.text || "").trim();
-        return `${page}|${type}|${color}|${rectSig}|${text}`;
+        return `${idPart}|${page}|${type}|${color}|${rectSig}|${text}`;
       }
       if (h.area) {
         const r = h.area;
         const rectSig = [r.x, r.y, r.width, r.height]
           .map((v) => Math.round(Number(v) || 0))
           .join(":");
-        return `${page}|area|${color}|${rectSig}`;
+        return `${idPart}|${page}|area|${color}|${rectSig}`;
       }
-      return `${page}|${type}|${color}`;
+      return `${idPart}|${page}|${type}|${color}`;
     };
     const seen = new Set();
     const arr = [];
@@ -249,32 +253,57 @@ export default function PageHighlightsSidebar({
                         background: "#fff",
                       }}
                     >
-                      {list.slice(0, MAX_ITEMS_PER_PAGE).map((h) => (
-                        <button
-                          key={`${page}-${h.type}-${h.color}-${(
-                            h.text || ""
-                          ).slice(0, 50)}`}
-                          onClick={() =>
-                            onJumpToHighlight && onJumpToHighlight(h)
-                          }
+                      {list.slice(0, MAX_ITEMS_PER_PAGE).map((h, idx) => (
+                        <div
+                          key={`${page}-${idx}-${h.id || h.created_at || ""}`}
                           style={{
-                            display: "block",
-                            width: "100%",
-                            textAlign: "left",
-                            background: "transparent",
-                            border: "none",
-                            fontSize: 12,
-                            color: "#4b5563",
-                            padding: "6px 0",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            padding: "4px 0",
                             borderBottom: "1px dashed #f3f4f6",
-                            cursor: "pointer",
                           }}
-                          title={h.text || "영역 하이라이트"}
                         >
-                          {h.type === "text"
-                            ? (h.text || "텍스트 하이라이트").slice(0, 120)
-                            : "영역 하이라이트"}
-                        </button>
+                          <button
+                            onClick={() =>
+                              onJumpToHighlight && onJumpToHighlight(h)
+                            }
+                            style={{
+                              flex: 1,
+                              textAlign: "left",
+                              background: "transparent",
+                              border: "none",
+                              fontSize: 12,
+                              color: "#4b5563",
+                              cursor: "pointer",
+                              padding: "6px 0",
+                            }}
+                            title={h.text || "영역 하이라이트"}
+                          >
+                            {h.type === "text"
+                              ? (h.text || "텍스트 하이라이트").slice(0, 120)
+                              : "영역 하이라이트"}
+                          </button>
+                          {typeof onDeleteHighlight === "function" && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteHighlight(h);
+                              }}
+                              style={{
+                                background: "transparent",
+                                border: "none",
+                                cursor: "pointer",
+                                color: "#9ca3af",
+                                fontSize: 16,
+                                padding: "0 4px",
+                              }}
+                              title="하이라이트 삭제"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
                       ))}
                       {list.length > MAX_ITEMS_PER_PAGE && (
                         <div style={{ fontSize: 12, color: "#9ca3af" }}>…</div>
@@ -286,36 +315,62 @@ export default function PageHighlightsSidebar({
             ) : (
               <div style={{ padding: "8px 8px 12px 8px", background: "#fff" }}>
                 {flatList.map((h, idx) => (
-                  <button
-                    key={`flat-${idx}-${h.type}-${h.color}-${(
-                      h.text || ""
-                    ).slice(0, 50)}`}
-                    onClick={() => onJumpToHighlight && onJumpToHighlight(h)}
+                  <div
+                    key={`flat-${idx}-${h.id || h.created_at || ""}`}
                     style={{
                       display: "flex",
                       width: "100%",
                       alignItems: "center",
                       gap: 8,
-                      textAlign: "left",
-                      background: "transparent",
-                      border: "none",
-                      fontSize: 12,
-                      color: "#4b5563",
-                      padding: "6px 4px",
                       borderBottom: "1px dashed #f3f4f6",
-                      cursor: "pointer",
+                      padding: "6px 4px",
                     }}
-                    title={h.text || "영역 하이라이트"}
                   >
-                    <span style={{ minWidth: 36, color: "#6b7280" }}>
-                      p{h.page}
-                    </span>
-                    <span style={{ flex: 1 }}>
-                      {h.type === "text"
-                        ? (h.text || "텍스트 하이라이트").slice(0, 120)
-                        : "영역 하이라이트"}
-                    </span>
-                  </button>
+                    <button
+                      onClick={() => onJumpToHighlight && onJumpToHighlight(h)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        flex: 1,
+                        textAlign: "left",
+                        background: "transparent",
+                        border: "none",
+                        fontSize: 12,
+                        color: "#4b5563",
+                        cursor: "pointer",
+                      }}
+                      title={h.text || "영역 하이라이트"}
+                    >
+                      <span style={{ minWidth: 36, color: "#6b7280" }}>
+                        p{h.page}
+                      </span>
+                      <span style={{ flex: 1 }}>
+                        {h.type === "text"
+                          ? (h.text || "텍스트 하이라이트").slice(0, 120)
+                          : "영역 하이라이트"}
+                      </span>
+                    </button>
+                    {typeof onDeleteHighlight === "function" && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteHighlight(h);
+                        }}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                          color: "#9ca3af",
+                          fontSize: 16,
+                          padding: "0 4px",
+                        }}
+                        title="하이라이트 삭제"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
                 ))}
                 {flatList.length === 0 && (
                   <div style={{ padding: 12, color: "#9ca3af", fontSize: 12 }}>

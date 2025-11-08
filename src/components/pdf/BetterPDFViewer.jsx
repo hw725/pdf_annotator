@@ -1418,6 +1418,7 @@ export default function BetterPDFViewer({
           defaultActiveTab={
             effectiveReferenceId === "temp" ? "bookmarks" : "highlights"
           }
+          onDeleteHighlight={handleHighlightDeleted}
         />
         <div
           ref={containerRef}
@@ -1511,6 +1512,8 @@ export default function BetterPDFViewer({
                       <PageHighlightOverlay
                         pageNumber={i + 1}
                         referenceId={effectiveReferenceId}
+                        basePageWidth={basePageWidth}
+                        basePageHeight={basePageHeight}
                         highlightMode={highlightMode}
                         selectedColor={selectedColor}
                         scale={scale}
