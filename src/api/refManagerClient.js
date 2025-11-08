@@ -146,7 +146,8 @@ async function apiRequest(endpoint, options = {}) {
 export async function getPdfInfo(referenceId) {
   return apiRequest("/getPdfInfo", {
     method: "POST",
-    body: JSON.stringify({ referenceId }),
+    // 서버 호환성을 위해 reference_id도 함께 전송
+    body: JSON.stringify({ referenceId, reference_id: referenceId }),
   });
 }
 
@@ -158,7 +159,8 @@ export async function getPdfInfo(referenceId) {
 export async function getAnnotations(referenceId) {
   return apiRequest("/getAnnotations", {
     method: "POST",
-    body: JSON.stringify({ referenceId }),
+    // 서버 호환성을 위해 reference_id도 함께 전송
+    body: JSON.stringify({ referenceId, reference_id: referenceId }),
   });
 }
 
