@@ -6,6 +6,21 @@ let gapiLoaded = false;
 let gsiLoaded = false;
 let tokenClient = null;
 let accessToken = null;
+let lastTokenResponse = null; // 최근 토큰 응답 저장 (디버그용)
+
+// 디버그 플래그
+function isDriveDebugEnabled() {
+  return localStorage.getItem("debug_drive") === "true";
+}
+
+function driveDebugLog(label, data) {
+  if (!isDriveDebugEnabled()) return;
+  try {
+    console.log(`[DriveDebug] ${label}`, data);
+  } catch (e) {
+    // ignore
+  }
+}
 
 const loadGapi = () => {
   return new Promise((resolve) => {
@@ -80,11 +95,18 @@ export const initDriveAPI = async () => {
       client_id: clientId,
       scope: "https://www.googleapis.com/auth/drive.file",
       callback: (response) => {
+        lastTokenResponse = response;
         if (response.error) {
           console.error("Google 인증 오류:", response);
+          driveDebugLog("token_error", response);
           return;
         }
         accessToken = response.access_token;
+        driveDebugLog("token_received", {
+          scope: "drive.file",
+          accessToken: accessToken?.slice(0, 12) + "...",
+          expires_in: response.expires_in,
+        });
         console.log("✅ Google Drive 인증 완료");
       },
     });
@@ -104,30 +126,69 @@ export const authenticateGoogleDrive = () => {
       return;
     }
     if (accessToken) {
+      driveDebugLog("reuse_token", {
+        accessToken: accessToken.slice(0, 12) + "...",
+      });
       resolve(accessToken);
       return;
     }
     tokenClient.callback = (response) => {
       if (response.error) {
+        driveDebugLog("auth_error", response);
         reject(response);
         return;
       }
       accessToken = response.access_token;
+      driveDebugLog("auth_success", {
+        accessToken: accessToken.slice(0, 12) + "...",
+      });
       resolve(accessToken);
     };
     tokenClient.requestAccessToken({ prompt: "consent" });
   });
 };
 
+// 토큰 유효성 및 스코프 검증
+export const verifyDriveAccessToken = async () => {
+  if (!accessToken) return { valid: false, reason: "no_token" };
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${accessToken}`
+    );
+    const json = await res.json();
+    driveDebugLog("tokeninfo", json);
+    if (json.error_description || json.error) {
+      return { valid: false, reason: json.error_description || json.error };
+    }
+    // scope 포함 여부 확인 (tokeninfo는 scope 필드를 가질 수 있음)
+    const scopeStr = json.scope || "";
+    const hasDriveFile = scopeStr.includes("drive.file");
+    return { valid: true, hasDriveFile, raw: json };
+  } catch (e) {
+    return { valid: false, reason: e?.message || "tokeninfo_failed" };
+  }
+};
+
 export const downloadFromDrive = async (fileId) => {
   if (!accessToken) {
     await authenticateGoogleDrive();
   }
-  const res = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
-  if (!res.ok) throw new Error(`파일 다운로드 실패: ${res.statusText}`);
+  const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+  driveDebugLog("download_start", { fileId, url });
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    driveDebugLog("download_error", {
+      status: res.status,
+      body: text.slice(0, 300),
+    });
+    throw new Error(
+      `파일 다운로드 실패: ${res.status} ${text || res.statusText}`
+    );
+  }
+  driveDebugLog("download_success", { fileId });
   return await res.blob();
 };
 
@@ -135,6 +196,7 @@ export const uploadToDrive = async (fileBlob, filename, folderId = null) => {
   if (!accessToken) {
     await authenticateGoogleDrive();
   }
+  driveDebugLog("upload_start", { filename, size: fileBlob.size, folderId });
   const metadata = { name: filename, mimeType: "application/pdf" };
   if (folderId) metadata.parents = [folderId];
 
@@ -145,15 +207,24 @@ export const uploadToDrive = async (fileBlob, filename, folderId = null) => {
   );
   form.append("file", fileBlob);
 
-  const res = await fetch(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink",
-    {
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: form,
-    }
-  );
-  if (!res.ok) throw new Error(`파일 업로드 실패: ${res.statusText}`);
+  const uploadUrl =
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink";
+  const res = await fetch(uploadUrl, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    driveDebugLog("upload_error", {
+      status: res.status,
+      body: text.slice(0, 300),
+    });
+    throw new Error(
+      `파일 업로드 실패: ${res.status} ${text || res.statusText}`
+    );
+  }
+  driveDebugLog("upload_success", {});
   const data = await res.json();
   return data.id;
 };
@@ -162,18 +233,27 @@ export const updateDriveFile = async (fileId, fileBlob) => {
   if (!accessToken) {
     await authenticateGoogleDrive();
   }
-  const res = await fetch(
-    `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
-    {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/pdf",
-      },
-      body: fileBlob,
-    }
-  );
-  if (!res.ok) throw new Error(`파일 업데이트 실패: ${res.statusText}`);
+  driveDebugLog("update_start", { fileId, size: fileBlob.size });
+  const updateUrl = `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`;
+  const res = await fetch(updateUrl, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/pdf",
+    },
+    body: fileBlob,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    driveDebugLog("update_error", {
+      status: res.status,
+      body: text.slice(0, 300),
+    });
+    throw new Error(
+      `파일 업데이트 실패: ${res.status} ${text || res.statusText}`
+    );
+  }
+  driveDebugLog("update_success", { fileId });
   return true;
 };
 
@@ -204,4 +284,13 @@ export const isAuthenticated = () => !!accessToken;
 export const signOut = () => {
   accessToken = null;
   console.log("✅ Google Drive 로그아웃");
+  driveDebugLog("sign_out", {});
 };
+
+// 디버그 모드 안내를 위한 헬퍼 (필요 시 UI에서 호출)
+export const getDriveDebugStatus = () => ({
+  debug: isDriveDebugEnabled(),
+  hasToken: !!accessToken,
+  tokenSnippet: accessToken ? accessToken.slice(0, 12) + "..." : null,
+  lastTokenResponse,
+});
