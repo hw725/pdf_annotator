@@ -8,6 +8,7 @@ import {
 import PDFViewer from "./components/pdf/BetterPDFViewer";
 import "./App.css";
 import { useMemo } from "react";
+import { runSelfTests } from "./utils/selfTest";
 
 function App() {
   const [referenceId, setReferenceId] = useState(null);
@@ -21,6 +22,7 @@ function App() {
     () => localStorage.getItem("debug_refmanager") === "true",
     []
   );
+  const [selfTestStatus, setSelfTestStatus] = useState(null);
 
   useEffect(() => {
     // URL 파라미터 파싱
@@ -82,6 +84,28 @@ function App() {
 
     // PDF 정보 및 주석 로드
     loadPdfData(effectiveRefId, title, pdfUrl);
+
+    // 경량 자동 셀프 테스트 (비차단)
+    setTimeout(async () => {
+      try {
+        const apiBaseUrl = localStorage.getItem("refmanager_api_url");
+        const token =
+          localStorage.getItem("base44_auth_token") ||
+          localStorage.getItem("base44-token") ||
+          localStorage.getItem("base44_token") ||
+          localStorage.getItem("auth_token") ||
+          localStorage.getItem("token") ||
+          "";
+        const res = await runSelfTests({
+          referenceId: effectiveRefId,
+          apiBaseUrl,
+          token,
+        });
+        setSelfTestStatus(res);
+      } catch (e) {
+        // ignore
+      }
+    }, 0);
   }, []);
 
   const loadPdfData = async (refId, urlTitle, urlPdfUrl) => {
@@ -208,6 +232,15 @@ function App() {
             <span className="annotation-count">
               {annotations.length}개 주석
             </span>
+            {selfTestStatus && (
+              <span
+                className="muted"
+                style={{ marginLeft: 8 }}
+              >
+                self-test {selfTestStatus.results.filter((r) => r.ok).length}/
+                {selfTestStatus.results.length} OK
+              </span>
+            )}
             {debugMode && (
               <button
                 className="btn btn-sm"
@@ -310,6 +343,92 @@ function DebugPanel({ referenceId }) {
     }
   };
 
+  // -------- Drive quick tests --------
+  const driveInit = async () => {
+    try {
+      const drive = await import("./api/driveClient");
+      const ok = await drive.initDriveAPI();
+      alert(ok ? "Drive 초기화 성공" : "Drive 초기화 실패 (키 미설정?)");
+    } catch (e) {
+      alert("Drive 초기화 에러: " + (e.message || e));
+    }
+  };
+
+  const driveAuth = async () => {
+    try {
+      const drive = await import("./api/driveClient");
+      const inited = await drive.initDriveAPI();
+      if (!inited) {
+        alert("Drive 초기화가 필요합니다 (.env 키 확인)");
+        return;
+      }
+      await drive.authenticateGoogleDrive();
+      const info = await drive.verifyDriveAccessToken();
+      alert(
+        info.valid
+          ? `인증 성공 (scope drive.file=${info.hasDriveFile ? "yes" : "no"})`
+          : `인증 실패: ${info.reason || "unknown"}`
+      );
+    } catch (e) {
+      alert("Drive 인증 에러: " + (e.message || e));
+    }
+  };
+
+  const driveUploadSample = async () => {
+    try {
+      const [{ PDFDocument }, drive] = await Promise.all([
+        import("pdf-lib"),
+        import("./api/driveClient"),
+      ]);
+      const inited = await drive.initDriveAPI();
+      if (!inited) {
+        alert("Drive 초기화가 필요합니다 (.env 키 확인)");
+        return;
+      }
+      // 아주 작은 1페이지 PDF 생성
+      const pdf = await PDFDocument.create();
+      pdf.addPage([300, 300]);
+      const bytes = await pdf.save();
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const fileId = await drive.uploadToDrive(blob, "annotator-sample.pdf");
+      const url = drive.getDriveUrl(fileId);
+      alert(`업로드 성공: ${fileId}\n${url}`);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (e) {
+      alert("Drive 업로드 에러: " + (e.message || e));
+    }
+  };
+
+  const driveUpdatePrompt = async () => {
+    try {
+      const drive = await import("./api/driveClient");
+      const fileId = window.prompt("업데이트할 Drive 파일 ID를 입력하세요");
+      if (!fileId) return;
+      // 새 빈 페이지 PDF로 업데이트
+      const { PDFDocument } = await import("pdf-lib");
+      const pdf = await PDFDocument.create();
+      pdf.addPage([400, 400]);
+      const bytes = await pdf.save();
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      await drive.updateDriveFile(fileId, blob);
+      const url = drive.getDriveUrl(fileId);
+      alert(`업데이트 성공: ${url}`);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (e) {
+      alert("Drive 업데이트 에러: " + (e.message || e));
+    }
+  };
+
+  const driveSignOut = async () => {
+    try {
+      const drive = await import("./api/driveClient");
+      drive.signOut();
+      alert("Drive 토큰 해제 완료");
+    } catch (e) {
+      alert("Drive 로그아웃 에러: " + (e.message || e));
+    }
+  };
+
   return (
     <div
       style={{
@@ -342,6 +461,41 @@ function DebugPanel({ referenceId }) {
             >
               <span style={{ color: "#93c5fd" }}>{t.key}:</span>{" "}
               <span style={{ wordBreak: "break-all" }}>
+                <div>
+                  <div style={{ fontWeight: 600 }}>Drive 테스트</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    <button
+                      className="btn btn-sm"
+                      onClick={driveInit}
+                    >
+                      초기화
+                    </button>
+                    <button
+                      className="btn btn-sm"
+                      onClick={driveAuth}
+                    >
+                      인증
+                    </button>
+                    <button
+                      className="btn btn-sm"
+                      onClick={driveUploadSample}
+                    >
+                      샘플 업로드
+                    </button>
+                    <button
+                      className="btn btn-sm"
+                      onClick={driveUpdatePrompt}
+                    >
+                      파일 업데이트
+                    </button>
+                    <button
+                      className="btn btn-sm"
+                      onClick={driveSignOut}
+                    >
+                      로그아웃
+                    </button>
+                  </div>
+                </div>
                 {t.value.slice(0, 60)}...
               </span>
               <button

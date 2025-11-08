@@ -10,6 +10,7 @@ export default function PageBookmarksSidebar({
   onJumpToPage,
   refreshKey = 0,
   bookmarksOverride = null,
+  onBookmarksOverrideChange = null,
 }) {
   const [bookmarks, setBookmarks] = useState([]);
   const [newBookmarkTitle, setNewBookmarkTitle] = useState("");
@@ -53,37 +54,57 @@ export default function PageBookmarksSidebar({
 
   // 북마크 추가
   const handleAddBookmark = async () => {
-    if (
-      !referenceId ||
-      referenceId === "temp" ||
-      Array.isArray(bookmarksOverride)
-    ) {
-      alert("이 모드에서는 북마크를 추가할 수 없습니다 (임포트 전용).");
+    const title = newBookmarkTitle.trim() || `페이지 ${currentPage}`;
+    const now = Date.now();
+
+    // Override 모드 편집 지원: 메모리 편집 + 상위 콜백 통지
+    if (Array.isArray(bookmarksOverride)) {
+      if (typeof onBookmarksOverrideChange !== "function") {
+        alert("임포트된 북마크는 읽기 전용입니다.");
+        return;
+      }
+      const id = `temp-bookmark-${now}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+      const bookmark = {
+        id,
+        page: currentPage,
+        title,
+        created_at: now,
+      };
+      const updated = [...bookmarks, bookmark].sort(
+        (a, b) =>
+          (a.page || 0) - (b.page || 0) ||
+          (a.created_at || 0) - (b.created_at || 0)
+      );
+      setBookmarks(updated);
+      onBookmarksOverrideChange(updated);
+      setNewBookmarkTitle("");
       return;
     }
-    const title = newBookmarkTitle.trim() || `페이지 ${currentPage}`;
+
+    // 일반 모드: IndexedDB에 저장
+    if (!referenceId || referenceId === "temp") {
+      alert("이 모드에서는 북마크를 추가할 수 없습니다.");
+      return;
+    }
     try {
       const db = await initDB();
-      const id = `bookmark-${Date.now()}-${Math.random()
-        .toString(36)
-        .substr(2, 9)}`;
+      const id = `bookmark-${now}-${Math.random().toString(36).substr(2, 9)}`;
       const bookmark = {
         id,
         reference_id: referenceId,
         page: currentPage,
         title,
-        created_at: Date.now(),
+        created_at: now,
       };
       await db.add("bookmarks", bookmark);
-      setBookmarks((prev) => {
-        const updated = [...prev, bookmark];
-        updated.sort(
-          (a, b) =>
-            (a.page || 0) - (b.page || 0) ||
-            (a.created_at || 0) - (b.created_at || 0)
-        );
-        return updated;
-      });
+      const updated = [...bookmarks, bookmark].sort(
+        (a, b) =>
+          (a.page || 0) - (b.page || 0) ||
+          (a.created_at || 0) - (b.created_at || 0)
+      );
+      setBookmarks(updated);
       setNewBookmarkTitle("");
     } catch (e) {
       console.error("북마크 추가 실패", e);
@@ -95,13 +116,24 @@ export default function PageBookmarksSidebar({
   const handleDeleteBookmark = async (bookmark) => {
     const ok = window.confirm(`"${bookmark.title}" 북마크를 삭제할까요?`);
     if (!ok) return;
+
+    // Override 모드: 메모리에서 제거 + 상위 콜백 통지
+    if (Array.isArray(bookmarksOverride)) {
+      if (typeof onBookmarksOverrideChange !== "function") {
+        alert("임포트된 북마크는 읽기 전용입니다.");
+        return;
+      }
+      const updated = bookmarks.filter(
+        (b) => b !== bookmark && b.id !== bookmark.id
+      );
+      setBookmarks(updated);
+      onBookmarksOverrideChange(updated);
+      return;
+    }
+
     try {
-      if (
-        !referenceId ||
-        referenceId === "temp" ||
-        Array.isArray(bookmarksOverride)
-      ) {
-        alert("임포트된 북마크는 여기서 삭제할 수 없습니다.");
+      if (!referenceId || referenceId === "temp") {
+        alert("이 모드에서는 삭제할 수 없습니다.");
         return;
       }
       const db = await initDB();

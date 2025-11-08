@@ -271,7 +271,9 @@ export async function uploadAnnotatedPdf(
   }
 
   const form = new FormData();
+  // 필드명 호환: referenceId & reference_id 동시 전송
   form.append("referenceId", referenceId);
+  form.append("reference_id", referenceId);
   form.append("file", fileBlob, filename);
 
   const url = `${apiBaseUrl.replace(/\/$/, "")}/uploadAnnotatedPdf`;

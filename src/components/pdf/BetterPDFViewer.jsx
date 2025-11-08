@@ -510,6 +510,124 @@ export default function BetterPDFViewer({
     localFile,
   ]);
 
+  // Base44 + Drive 동시에 저장 (Drive 먼저 → Base44)
+  const handleSaveAll = useCallback(async () => {
+    if (!hasSource) {
+      alert("먼저 PDF를 열어주세요.");
+      return;
+    }
+    let driveResult = null;
+    let base44Result = null;
+    let blob;
+    try {
+      setExportBusy(true);
+      setBase44Busy(true);
+      // 공통 Blob 준비
+      if (effectiveReferenceId === "temp") {
+        const ab = await getSourceArrayBuffer();
+        blob = await exportPDFWithHighlights({
+          sourceArrayBuffer: ab,
+          highlights: allHighlights,
+        });
+      } else {
+        blob = await exportFromIndexedDB({
+          referenceId: effectiveReferenceId,
+          pdfCacheId: undefined,
+          getSourceArrayBuffer,
+        });
+      }
+      // Drive 저장/업데이트 시도
+      try {
+        const [drive, pdfMgr] = await Promise.all([
+          import("@/api/driveClient"),
+          import("@/utils/pdfManager"),
+        ]);
+        if (drive.isDriveAPIAvailable()) {
+          const inited = await drive.initDriveAPI();
+          if (inited) {
+            if (driveInfo.updatable && driveInfo.fileId) {
+              try {
+                await drive.updateDriveFile(driveInfo.fileId, blob);
+                driveResult = {
+                  ok: true,
+                  updated: true,
+                  fileId: driveInfo.fileId,
+                };
+              } catch (e) {
+                const fid = await drive.uploadToDrive(blob, "annotated.pdf");
+                driveResult = { ok: true, updated: false, fileId: fid };
+              }
+            } else {
+              const fid = await drive.uploadToDrive(blob, "annotated.pdf");
+              driveResult = { ok: true, updated: false, fileId: fid };
+            }
+          } else {
+            driveResult = { ok: false, message: "Drive 초기화 실패" };
+          }
+        } else {
+          driveResult = { ok: false, message: "Drive API 미설정" };
+        }
+      } catch (e) {
+        driveResult = { ok: false, message: e?.message || String(e) };
+      }
+
+      // Base44 저장 시도
+      try {
+        const { canUploadToBase44, uploadAnnotatedPdf } = await import(
+          "@/api/refManagerClient"
+        );
+        if (canUploadToBase44()) {
+          let baseName = "annotated";
+          if (localFile?.name) baseName = localFile.name.replace(/\.pdf$/i, "");
+          const filename = `${baseName} (annotated).pdf`;
+          const resp = await uploadAnnotatedPdf(
+            referenceId || effectiveReferenceId || "temp",
+            blob,
+            filename
+          );
+          base44Result = { ok: true, url: resp?.file_url };
+        } else {
+          base44Result = { ok: false, message: "Base44 업로드 불가(토큰/URL)" };
+        }
+      } catch (e) {
+        base44Result = { ok: false, message: e?.message || String(e) };
+      }
+    } finally {
+      setExportBusy(false);
+      setBase44Busy(false);
+    }
+
+    // 결과 요약
+    const msgs = [];
+    if (driveResult) {
+      msgs.push(
+        driveResult.ok
+          ? `Drive: ${driveResult.updated ? "업데이트" : "업로드"} 성공 (${
+              driveResult.fileId || "ID 없음"
+            })`
+          : `Drive 실패: ${driveResult.message}`
+      );
+    }
+    if (base44Result) {
+      msgs.push(
+        base44Result.ok
+          ? `Base44: 저장 성공${
+              base44Result.url ? ` (${base44Result.url})` : ""
+            }`
+          : `Base44 실패: ${base44Result.message}`
+      );
+    }
+    alert(msgs.join("\n"));
+  }, [
+    hasSource,
+    effectiveReferenceId,
+    referenceId,
+    getSourceArrayBuffer,
+    allHighlights,
+    localFile,
+    driveInfo,
+  ]);
+
   // 초기 하이라이트 동기화
   useEffect(() => {
     const list = Array.isArray(initialAnnotations) ? initialAnnotations : [];
@@ -1189,6 +1307,14 @@ export default function BetterPDFViewer({
             >
               Base44로 저장
             </button>
+            <button
+              className="btn warn"
+              onClick={handleSaveAll}
+              disabled={exportBusy || base44Busy}
+              title="Drive와 Base44 모두에 저장"
+            >
+              모두 저장
+            </button>
           </div>
           {!hasSource && (
             <span
@@ -1216,6 +1342,11 @@ export default function BetterPDFViewer({
           refreshKey={dbRefreshKey}
           bookmarksOverride={
             effectiveReferenceId === "temp" ? importedBookmarks : null
+          }
+          onBookmarksOverrideChange={
+            effectiveReferenceId === "temp"
+              ? (updated) => setImportedBookmarks(updated || [])
+              : null
           }
         />
         <div
